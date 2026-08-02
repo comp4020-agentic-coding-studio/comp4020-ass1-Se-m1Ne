@@ -36,6 +36,15 @@ button:hover {
   background: #094ecc;
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-role="counter"] {
+  font-size: 1.25rem;
+}
+
 button:focus-visible,
 h2:focus-visible {
   outline: 3px solid #094ecc;
