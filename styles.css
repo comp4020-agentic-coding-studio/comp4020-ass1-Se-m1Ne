@@ -14,3 +14,30 @@ main {
 a {
   color: #0b5fff;
 }
+
+section[data-app-state] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+button {
+  padding: 0.6rem 1.25rem;
+  border: 1px solid #0b5fff;
+  border-radius: 0.25rem;
+  background: #0b5fff;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #094ecc;
+}
+
+button:focus-visible,
+h2:focus-visible {
+  outline: 3px solid #094ecc;
+  outline-offset: 2px;
+}

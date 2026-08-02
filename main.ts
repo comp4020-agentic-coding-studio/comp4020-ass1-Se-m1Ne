@@ -1,8 +1,37 @@
-// Your prototype's TypeScript goes here. This file exists so the lint
-// sensor has something to check from day one. If the week's spec rules out
-// JavaScript, delete this file and the script tag in index.html — the site
-// you ship has to meet the spec, not the template's defaults.
-const intro = document.querySelector<HTMLElement>('[data-testid="intro"]');
-if (intro) {
-  intro.dataset.ready = "true";
+// A small, explicit state machine driving a single-page flow. Each state is
+// a <section data-app-state="..."> in index.html; this script only ever
+// toggles which one is visible and moves focus to it. No timers, no hidden
+// changes, no effects — that's deliberately left for a later iteration.
+type AppState = "intro" | "experiment" | "doubt" | "reflection";
+
+const NEXT_STATE: Record<AppState, AppState> = {
+  intro: "experiment",
+  experiment: "doubt",
+  doubt: "reflection",
+  reflection: "intro",
+};
+
+const sections = new Map<AppState, HTMLElement>();
+for (const section of document.querySelectorAll<HTMLElement>("[data-app-state]")) {
+  const state = section.dataset.appState as AppState;
+  sections.set(state, section);
 }
+
+let currentState: AppState = "intro";
+
+function showState(state: AppState): void {
+  currentState = state;
+  for (const [key, section] of sections) {
+    section.hidden = key !== state;
+  }
+  sections.get(state)?.querySelector<HTMLElement>("h2")?.focus();
+}
+
+document.querySelector("main")?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (!target.closest("[data-action='continue']")) return;
+  showState(NEXT_STATE[currentState]);
+});
+
+showState(currentState);

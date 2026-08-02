@@ -13,11 +13,43 @@
       </nav>
     </header>
     <main>
-      <h1>COMP4020 prototype</h1>
-      <p data-testid="intro">
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
-      </p>
+      <h1>Interactive session</h1>
+
+      <section data-app-state="intro">
+        <h2 tabindex="-1">Welcome</h2>
+        <p data-testid="intro">
+          This is a short interactive session. You'll move through a few
+          stages, one screen at a time.
+        </p>
+        <button type="button" data-action="continue">Begin</button>
+      </section>
+
+      <section data-app-state="experiment" hidden>
+        <h2 tabindex="-1">Experiment</h2>
+        <p>
+          This stage will hold the first interaction. For now, it's a
+          placeholder step in the flow.
+        </p>
+        <button type="button" data-action="continue">Continue</button>
+      </section>
+
+      <section data-app-state="doubt" hidden>
+        <h2 tabindex="-1">Doubt</h2>
+        <p>
+          This stage will introduce a later part of the experience. Nothing
+          happens here yet.
+        </p>
+        <button type="button" data-action="continue">Continue</button>
+      </section>
+
+      <section data-app-state="reflection" hidden>
+        <h2 tabindex="-1">Reflection</h2>
+        <p>
+          This stage will hold an explanation once the earlier stages are
+          built out. For now, it completes the loop back to the start.
+        </p>
+        <button type="button" data-action="continue">Return</button>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
