@@ -1,106 +1,82 @@
-// A small, explicit state machine driving a single-page flow. Each state is
-// a <section data-app-state="..."> in index.html; this script only ever
-// toggles which one is visible and moves focus to it. No timers, no hidden
-// changes, no effects — that's deliberately left for a later iteration.
-type AppState = "intro" | "experiment" | "doubt" | "reflection";
+interface NavActions {
+  next: () => void;
+  restart: () => void;
+}
+type Render = (container: HTMLElement, nav: NavActions) => void;
 
-const NEXT_STATE: Record<AppState, AppState> = {
-  intro: "experiment",
-  experiment: "doubt",
-  doubt: "reflection",
-  reflection: "intro",
-};
-
-const sections = new Map<AppState, HTMLElement>();
-for (const section of document.querySelectorAll<HTMLElement>("[data-app-state]")) {
-  const state = section.dataset.appState as AppState;
-  sections.set(state, section);
+function heading(container: HTMLElement, text: string): void {
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  h1.textContent = text;
+  container.appendChild(h1);
 }
 
-let currentState: AppState = "intro";
-
-// The one mechanic: real presses recorded per stage vs. what the counter
-// displays. These stay equal until the single deterministic drop in doubt.
-let experimentPresses = 0;
-let doubtPresses = 0;
-let displayedCount = 0;
-let mismatchApplied = false;
-
-const MIN_PRESSES: Partial<Record<AppState, number>> = {
-  experiment: 3,
-  doubt: 1,
-};
-
-function pressesFor(state: AppState): number {
-  return state === "experiment" ? experimentPresses : state === "doubt" ? doubtPresses : 0;
+function paragraph(container: HTMLElement, text: string): void {
+  const p = document.createElement("p");
+  p.textContent = text;
+  container.appendChild(p);
 }
 
-function updateContinueButton(state: AppState): void {
-  const min = MIN_PRESSES[state];
-  if (min === undefined) return;
-  const button = sections.get(state)?.querySelector<HTMLButtonElement>("[data-action='continue']");
-  if (button) button.disabled = pressesFor(state) < min;
+function actionButton(container: HTMLElement, label: string, onClick: () => void): void {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  container.appendChild(button);
 }
 
-function handlePress(): void {
-  if (currentState !== "experiment" && currentState !== "doubt") return;
-
-  if (currentState === "doubt" && !mismatchApplied) {
-    mismatchApplied = true;
-    doubtPresses += 1;
-  } else {
-    if (currentState === "experiment") experimentPresses += 1;
-    else doubtPresses += 1;
-    displayedCount += 1;
-    const counter = sections.get(currentState)?.querySelector<HTMLElement>("[data-role='counter']");
-    if (counter) counter.textContent = String(displayedCount);
-  }
-
-  updateContinueButton(currentState);
+function renderWelcome(container: HTMLElement, nav: NavActions): void {
+  heading(container, "Welcome");
+  paragraph(container, "Welcome.");
+  actionButton(container, "Begin", nav.next);
 }
 
-function showState(state: AppState): void {
-  currentState = state;
-  for (const [key, section] of sections) {
-    section.hidden = key !== state;
-  }
-
-  if (state === "intro") {
-    experimentPresses = 0;
-    doubtPresses = 0;
-    displayedCount = 0;
-    mismatchApplied = false;
-  }
-
-  if (state === "experiment" || state === "doubt") {
-    const counter = sections.get(state)?.querySelector<HTMLElement>("[data-role='counter']");
-    if (counter) counter.textContent = String(displayedCount);
-    updateContinueButton(state);
-  }
-
-  if (state === "reflection") {
-    const trueCount = experimentPresses + doubtPresses;
-    const trueCountEl = sections.get(state)?.querySelector<HTMLElement>("[data-role='true-count']");
-    const displayedEl = sections.get(state)?.querySelector<HTMLElement>("[data-role='displayed-count']");
-    if (trueCountEl) trueCountEl.textContent = String(trueCount);
-    if (displayedEl) displayedEl.textContent = String(displayedCount);
-  }
-
-  sections.get(state)?.querySelector<HTMLElement>("h2")?.focus();
+function renderBriefing(container: HTMLElement, nav: NavActions): void {
+  heading(container, "Briefing");
+  paragraph(container, "Some parts of the following environment may not reflect the world as you know it.");
+  paragraph(container, "Proceed through each stage using your own judgement.");
+  paragraph(container, "Instructions for each task will be provided individually.");
+  actionButton(container, "Continue", nav.next);
 }
 
-document.querySelector("main")?.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
+function renderTaskPlaceholder(n: number): Render {
+  return (container, nav) => {
+    heading(container, `Task ${n}`);
+    paragraph(container, `Task ${n} Placeholder.`);
+    actionButton(container, "Continue", nav.next);
+  };
+}
 
-  if (target.closest("[data-action='press']")) {
-    handlePress();
-    return;
-  }
+function renderChoice(container: HTMLElement, nav: NavActions): void {
+  heading(container, "Choice");
+  actionButton(container, "Accept", nav.next);
+  actionButton(container, "Look Again", nav.restart);
+}
 
-  if (target.closest("[data-action='continue']")) {
-    showState(NEXT_STATE[currentState]);
-  }
-});
+function renderReflection(container: HTMLElement): void {
+  heading(container, "Reflection");
+  paragraph(container, "Reflection placeholder.");
+}
 
-showState(currentState);
+const SEQUENCE: Render[] = [
+  renderWelcome,
+  renderBriefing,
+  ...Array.from({ length: 20 }, (_, i) => renderTaskPlaceholder(i + 1)),
+  renderChoice,
+  renderReflection,
+];
+
+let currentIndex = 0;
+const container = document.querySelector<HTMLElement>("#screen")!;
+
+function show(index: number): void {
+  currentIndex = index;
+  container.replaceChildren();
+  SEQUENCE[currentIndex](container, {
+    next: () => show(currentIndex + 1),
+    restart: () => show(0),
+  });
+  container.querySelector("h1")?.focus();
+}
+
+show(0);

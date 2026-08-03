@@ -13,40 +13,9 @@
       </nav>
     </header>
     <main>
-      <h1>Interactive session</h1>
-
-      <section data-app-state="intro">
-        <h2 tabindex="-1">Welcome</h2>
-        <p data-testid="intro">
-          Press a button and watch what the counter shows.
-        </p>
-        <button type="button" data-action="continue">Begin</button>
-      </section>
-
-      <section data-app-state="experiment" hidden>
-        <h2 tabindex="-1">Experiment</h2>
-        <p>Press the button a few times, then continue when you're ready.</p>
-        <p>Count: <span data-role="counter" aria-live="polite">0</span></p>
-        <button type="button" data-action="press">Press</button>
-        <button type="button" data-action="continue" disabled>Continue</button>
-      </section>
-
-      <section data-app-state="doubt" hidden>
-        <h2 tabindex="-1">Doubt</h2>
-        <p>Press the button a few times, then continue when you're ready.</p>
-        <p>Count: <span data-role="counter" aria-live="polite">0</span></p>
-        <button type="button" data-action="press">Press</button>
-        <button type="button" data-action="continue" disabled>Continue</button>
-      </section>
-
-      <section data-app-state="reflection" hidden>
-        <h2 tabindex="-1">Reflection</h2>
-        <p>
-          You pressed the button <span data-role="true-count">0</span> times.
-          The counter showed <span data-role="displayed-count">0</span>.
-        </p>
-        <button type="button" data-action="continue">Return</button>
-      </section>
+      <div id="screen" data-testid="intro">
+        <h1 tabindex="-1"></h1>
+      </div>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
