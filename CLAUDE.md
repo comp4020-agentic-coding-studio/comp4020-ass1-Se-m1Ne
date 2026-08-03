@@ -1,84 +1,112 @@
-# COMP4020 prototype
+# Updated Project Direction
 
-# Project
+## Overall experience
 
-This project is an interactive philosophical explainer inspired by the "Brain in a Vat" thought experiment.
-The goal is not to tell users the philosophy directly.
-Instead, users should gradually experience uncertainty through interaction before any explanation is revealed.
+Replace the previous four-state ("Intro → Experiment → Doubt → Reflection") prototype with a **linear full-screen experience**.
 
-## Design Principles
+The website should feel like a guided experiment rather than a scrolling webpage.
 
-Every feature must support one of these stages:
-1. Trust
-2. Doubt
-3. Reflection
-If a feature does not strengthen one of these stages, it should not be added.
+Only **one page** is visible at any time.
 
-## User Experience
+Users move forward only through explicit navigation (e.g. Continue / Next).
 
-The interface should feel believable before it becomes questionable.
-Avoid unnecessary visual effects.
-Avoid making the experience feel like a game.
-Subtlety is preferred over surprise.
-Small inconsistencies are more effective than obvious tricks.
+Scrolling must **never** reveal future content.
 
-## Development Principles
+---
 
-Keep components small.
-Keep application statentally.
-Do not over-engineer early versions.
+## Page structure
 
-## Accessibility
+The experience is organised as a sequence of independent pages:
 
-The experience must remain usable with:
-- keyboard navigation
-- desktop viewport
-- mobile viewport
-Semantic HTML should always be preferred.
+- Opening
+- Approximately 20 interactive task pages
+- Choice page (Accept / Look Again)
+- Final reflection
 
-## Scope
+Each page contains only one interaction and one clear objective.
 
-One idea.
-One interaction.
-One experience.
-Avoid adding unrelated content or features.
+Future pages remain completely hidden until reached.
 
-## Iteration 1
+---
 
-Current goal:
-Build a clean application structure only.
-Do not implement psychological effects yet.e explicit.
-Prefer readable code over clever code.
-Avoid unnecessary dependencies.
-Build features increm
+## Opening
 
-## Iteration 2
+The experience begins with two separate screens.
 
-Building the first Brain in a Vat experience layer.
+### Screen 1
 
-Goal:
-Transform the existing interaction skeleton into the first playable version of the
-Brain in a Vat concept.
+**Content**
 
-The experience should not explain the philosophical theory directly. Instead, it
-should create the feeling of gradually losing trust in the interface.
+> Welcome.
 
-Design principles:
-- Build around one core mechanic: trust erosion through interaction.
-- The user should actively do something before doubt is introduced.
-- Changes should be intentional and understandable, not random tricks.
-- Preserve the existing state-machine architecture unless a strong reason requires
-  changing it.
-- Keep the prototype small: one idea, one interaction, one experience.
+**Button**
 
-Current experience arc:
-1. Establish trust.
-2. Introduce small inconsistencies.
-3. Encourage the user to question the system.
-4. End with an open reflection rather than a clear explanation.
+> **Begin**
 
-Implementation constraints:
-- Do not add unnecessary frameworks or dependencies.
-- Do not modify spec/ tests.
-- Keep the site static and client-side.
-- Verify behaviour before accepting changes.
+---
+
+### Screen 2
+
+**Content**
+
+> Some parts of the following environment may not reflect the world as you know it.
+>
+> Proceed through each stage using your own judgement.
+>
+> Instructions for each task will be provided individually.
+
+**Button**
+
+> **Continue**
+
+---
+
+### Design goals
+
+- Keep the opening simple and calm, avoiding unnecessary explanation on the first screen.
+- Create a clear transition from entering the experience to entering the experiment.
+- Present the experience as an experiment rather than a game.
+- Suggest that the environment may differ from reality without revealing the purpose.
+- Encourage users to rely on their own understanding of reality instead of searching for objectively "correct" answers.
+- Do not mention the Brain in a Vat thought experiment or the final twist.
+- After the briefing, every following screen should contain only one task with its own instructions and interactions.
+
+---
+
+## Interactive tasks
+
+Instead of trying to deceive the user with bugs or incorrect behaviour, the user actively repairs or modifies an intentionally artificial world.
+
+The experience should contain **approximately 20 short interactive tasks**. Each task should focus on a single interaction and take only a few seconds to complete. Together, the sequence should gradually encourage the user to think about how they determine what is "normal" or "real".
+
+The website should not judge whether the user's modifications are correct. Every task can be completed regardless of the user's choices, allowing users to rely on their own assumptions rather than receiving confirmation from the system.
+
+---
+
+## Ending
+
+After all tasks are complete, present a question **Are you satisfied that this world is now real?** 
+and two choices:
+
+- **Accept**
+- **Look Again**
+
+**Accept** continues to the final reflection.
+
+**Look Again** restarts the entire experience from the beginning without explanation.
+
+The final reflection should connect the user's own actions to the central philosophical question, rather than explicitly explaining the Brain in a Vat thought experiment.
+
+---
+
+## Design principles
+
+- One page = one interaction.
+- Only one page is visible at any time.
+- No scrolling between tasks.
+- Progress only through explicit navigation buttons.
+- Future pages remain hidden until reached.
+- No correctness checking or scoring.
+- No "Correct" or "Incorrect" feedback.
+- Encourage reflection rather than puzzle solving.
+- The interface should remain minimal, calm and intentional.
