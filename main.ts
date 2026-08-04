@@ -1,6 +1,7 @@
 interface NavActions {
   next: () => void;
   restart: () => void;
+  recheck: () => void;
 }
 type Render = (container: HTMLElement, nav: NavActions) => void;
 
@@ -90,7 +91,12 @@ const BRIEFING_LINES = [
   "Instructions for each task will be provided individually.",
 ];
 
-async function runBriefingSequence(terminal: HTMLElement, container: HTMLElement, nav: NavActions): Promise<void> {
+async function runTypedTerminalSequence(
+  h1: HTMLElement,
+  headingText: string,
+  terminal: HTMLElement,
+  lines: string[],
+): Promise<void> {
   function onKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
       return;
@@ -105,33 +111,53 @@ async function runBriefingSequence(terminal: HTMLElement, container: HTMLElement
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("click", onClick);
 
-  for (let i = 0; i < BRIEFING_LINES.length; i += 1) {
-    await typeLine(terminal, `> ${BRIEFING_LINES[i]}`);
-    if (i < BRIEFING_LINES.length - 1) {
+  await typeText(h1, headingText);
+  await sleep(300);
+
+  for (let i = 0; i < lines.length; i += 1) {
+    await typeLine(terminal, lines[i]);
+    if (i < lines.length - 1) {
       await sleep(300);
     }
   }
-  await sleep(800);
+  await sleep(700);
 
   document.removeEventListener("keydown", onKeyDown);
   document.removeEventListener("click", onClick);
+}
 
-  actionButton(container, "Confirm", () => {
-    container.classList.remove("briefing-wide");
+async function runBriefingSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await runTypedTerminalSequence(
+    h1,
+    "BRIEFING",
+    terminal,
+    BRIEFING_LINES.map((line) => `> ${line}`),
+  );
+
+  actionButton(container, "CONFIRM", () => {
+    container.classList.remove("term-wide");
     nav.next();
   });
 }
 
 function renderBriefing(container: HTMLElement, nav: NavActions): void {
-  heading(container, "Briefing");
-  container.classList.add("briefing-wide");
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
 
   const terminal = document.createElement("div");
   terminal.className = "align-terminal";
   terminal.setAttribute("aria-live", "polite");
   container.appendChild(terminal);
 
-  void runBriefingSequence(terminal, container, nav);
+  void runBriefingSequence(h1, terminal, container, nav);
 }
 
 function renderTaskPlaceholder(n: number): Render {
@@ -142,10 +168,46 @@ function renderTaskPlaceholder(n: number): Render {
   };
 }
 
+const CHOICE_LINES = [
+  "> The environment has been aligned.",
+  "",
+  "> No inconsistencies were detected.",
+  "",
+  "> Do you confirm this reality?",
+];
+
+async function runChoiceSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTypedTerminalSequence(h1, "REALITY CONFIRMATION", terminal, CHOICE_LINES);
+
+  actionButton(container, "CONFIRM REALITY", () => {
+    container.classList.remove("term-wide");
+    nav.next();
+  });
+  actionButton(container, "RECHECK ENVIRONMENT", () => {
+    container.classList.remove("term-wide");
+    nav.recheck();
+  });
+}
+
 function renderChoice(container: HTMLElement, nav: NavActions): void {
-  heading(container, "Choice");
-  actionButton(container, "Accept", nav.next);
-  actionButton(container, "Look Again", nav.restart);
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runChoiceSequence(h1, terminal, container, nav);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -411,6 +473,8 @@ function renderReflection(container: HTMLElement, nav: NavActions): void {
   void runAlignmentSequence(terminal, windowsLayer, nav);
 }
 
+const FIRST_TASK_INDEX = 2;
+
 const SEQUENCE: Render[] = [
   renderWelcome,
   renderBriefing,
@@ -428,6 +492,7 @@ function show(index: number): void {
   SEQUENCE[currentIndex](container, {
     next: () => show(currentIndex + 1),
     restart: () => show(0),
+    recheck: () => show(FIRST_TASK_INDEX),
   });
   container.querySelector("h1")?.focus();
 }

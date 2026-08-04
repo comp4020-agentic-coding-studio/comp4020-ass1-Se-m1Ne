@@ -93,8 +93,8 @@ h1:focus-visible {
   text-align: left;
 }
 
-.briefing-wide {
-  max-width: max(42rem, min(78vw, 64rem));
+#screen.term-wide {
+  max-width: min(90vw, 1100px);
 }
 
 .term-cursor {
