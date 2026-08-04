@@ -53,9 +53,17 @@ function renderChoice(container: HTMLElement, nav: NavActions): void {
   actionButton(container, "Look Again", nav.restart);
 }
 
-function renderReflection(container: HTMLElement): void {
-  heading(container, "Reflection");
-  paragraph(container, "Reflection placeholder.");
+function renderReflection(container: HTMLElement, nav: NavActions): void {
+  heading(container, "Reality Alignment");
+  paragraph(container, "Checking reality consistency...");
+  paragraph(container, "Aligning environment...");
+  paragraph(container, "Restoring stable state...");
+  paragraph(container, "Reality Alignment Complete.");
+  paragraph(container, "Current environment verified.");
+  paragraph(container, "");
+  paragraph(container, "External reality verification:");
+  paragraph(container, "Unable to verify.");
+  actionButton(container, "Close Session", nav.restart);
 }
 
 const SEQUENCE: Render[] = [
