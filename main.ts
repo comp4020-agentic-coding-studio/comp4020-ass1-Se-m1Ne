@@ -26,17 +26,112 @@ function actionButton(container: HTMLElement, label: string, onClick: () => void
 }
 
 function renderWelcome(container: HTMLElement, nav: NavActions): void {
-  heading(container, "Welcome");
-  paragraph(container, "Welcome.");
-  actionButton(container, "Begin", nav.next);
+  const stage = document.createElement("div");
+  stage.className = "welcome-stage";
+  container.appendChild(stage);
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  h1.className = "term-heading";
+  stage.appendChild(h1);
+
+  let finished = false;
+
+  function advance(): void {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    document.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("click", onClick);
+    nav.next();
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    advance();
+  }
+
+  function onClick(): void {
+    advance();
+  }
+
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  async function idleLoop(): Promise<void> {
+    while (!finished) {
+      await typeText(h1, "WELCOME", () => finished);
+      if (finished) {
+        break;
+      }
+      const cursor = createCursor();
+      h1.appendChild(cursor);
+      await sleep(10000);
+      if (finished) {
+        break;
+      }
+      h1.textContent = "";
+      await sleep(600);
+      if (finished) {
+        break;
+      }
+    }
+  }
+
+  void idleLoop();
+}
+
+const BRIEFING_LINES = [
+  "Some parts of the following environment may not reflect the world as you know it.",
+  "Proceed through each stage using your own judgement.",
+  "Instructions for each task will be provided individually.",
+];
+
+async function runBriefingSequence(terminal: HTMLElement, container: HTMLElement, nav: NavActions): Promise<void> {
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  for (let i = 0; i < BRIEFING_LINES.length; i += 1) {
+    await typeLine(terminal, `> ${BRIEFING_LINES[i]}`);
+    if (i < BRIEFING_LINES.length - 1) {
+      await sleep(300);
+    }
+  }
+  await sleep(800);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  actionButton(container, "Confirm", () => {
+    container.classList.remove("briefing-wide");
+    nav.next();
+  });
 }
 
 function renderBriefing(container: HTMLElement, nav: NavActions): void {
   heading(container, "Briefing");
-  paragraph(container, "Some parts of the following environment may not reflect the world as you know it.");
-  paragraph(container, "Proceed through each stage using your own judgement.");
-  paragraph(container, "Instructions for each task will be provided individually.");
-  actionButton(container, "Continue", nav.next);
+  container.classList.add("briefing-wide");
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runBriefingSequence(terminal, container, nav);
 }
 
 function renderTaskPlaceholder(n: number): Render {
@@ -83,28 +178,71 @@ function waitForEscape(): Promise<void> {
 
 const TYPE_CHAR_MS = 80;
 
-function typeLine(terminal: HTMLElement, text: string): Promise<HTMLElement> {
-  const line = document.createElement("div");
-  line.className = "term-line";
-  terminal.appendChild(line);
+let activeTypeSkip: (() => void) | null = null;
 
+function skipCurrentTyping(): void {
+  activeTypeSkip?.();
+}
+
+function typeText(el: HTMLElement, text: string, isCancelled?: () => boolean): Promise<void> {
   if (text.length === 0) {
-    return Promise.resolve(line);
+    return Promise.resolve();
   }
 
   return new Promise((resolve) => {
+    let done = false;
+
+    function finish(): void {
+      if (done) {
+        return;
+      }
+      done = true;
+      el.textContent = text;
+      if (activeTypeSkip === finish) {
+        activeTypeSkip = null;
+      }
+      resolve();
+    }
+
+    activeTypeSkip = finish;
+
     let i = 0;
     function typeNext(): void {
+      if (done) {
+        return;
+      }
+      if (isCancelled?.()) {
+        done = true;
+        if (activeTypeSkip === finish) {
+          activeTypeSkip = null;
+        }
+        resolve();
+        return;
+      }
       i += 1;
-      line.textContent = text.slice(0, i);
+      el.textContent = text.slice(0, i);
       if (i < text.length) {
         setTimeout(typeNext, TYPE_CHAR_MS);
       } else {
-        resolve(line);
+        finish();
       }
     }
     setTimeout(typeNext, TYPE_CHAR_MS);
   });
+}
+
+function typeLine(terminal: HTMLElement, text: string): Promise<HTMLElement> {
+  const line = document.createElement("div");
+  line.className = "term-line";
+  terminal.appendChild(line);
+  return typeText(line, text).then(() => line);
+}
+
+function createCursor(): HTMLElement {
+  const cursor = document.createElement("span");
+  cursor.className = "term-cursor";
+  cursor.textContent = "▏";
+  return cursor;
 }
 
 function terminalProgress(

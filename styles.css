@@ -68,10 +68,49 @@ button:hover {
   border-color: #7c8a96;
 }
 
-button:focus-visible,
-h1:focus-visible {
+button:focus-visible {
   outline: 2px solid #5fd4ff;
   outline-offset: 3px;
+}
+
+h1:focus,
+h1:focus-visible {
+  outline: none;
+}
+
+.welcome-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding-left: clamp(1.5rem, 6vw, 4rem);
+}
+
+.term-heading {
+  margin: 0;
+  font-size: clamp(3rem, 12vw, 6rem);
+  text-align: left;
+}
+
+.briefing-wide {
+  max-width: max(42rem, min(78vw, 64rem));
+}
+
+.term-cursor {
+  display: inline-block;
+  animation: term-blink 1s ease-in-out infinite;
+}
+
+@keyframes term-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
 }
 
 .align-terminal {
