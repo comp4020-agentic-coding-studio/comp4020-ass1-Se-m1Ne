@@ -53,36 +53,69 @@ function renderChoice(container: HTMLElement, nav: NavActions): void {
   actionButton(container, "Look Again", nav.restart);
 }
 
-const ALIGNMENT_WINDOW_OFFSET_PX = 16;
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createAlignmentWindow(
-  stage: HTMLElement,
-  index: number,
-  title: string,
-): { root: HTMLElement; body: HTMLElement } {
-  const root = document.createElement("div");
-  root.className = "align-window";
-  root.style.marginLeft = `${index * ALIGNMENT_WINDOW_OFFSET_PX}px`;
-
-  const titleBar = document.createElement("div");
-  titleBar.className = "align-window-title";
-  titleBar.textContent = title;
-
-  const body = document.createElement("div");
-  body.className = "align-window-body";
-
-  root.append(titleBar, body);
-  stage.appendChild(root);
-  return { root, body };
+function waitForEnter(): Promise<void> {
+  return new Promise((resolve) => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Enter") {
+        document.removeEventListener("keydown", onKeyDown);
+        resolve();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+  });
 }
 
-function createAlignmentProgress(body: HTMLElement, label: string): { track: HTMLElement; fill: HTMLElement } {
+function waitForEscape(): Promise<void> {
+  return new Promise((resolve) => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        document.removeEventListener("keydown", onKeyDown);
+        resolve();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+  });
+}
+
+const TYPE_CHAR_MS = 80;
+
+function typeLine(terminal: HTMLElement, text: string): Promise<HTMLElement> {
+  const line = document.createElement("div");
+  line.className = "term-line";
+  terminal.appendChild(line);
+
+  if (text.length === 0) {
+    return Promise.resolve(line);
+  }
+
+  return new Promise((resolve) => {
+    let i = 0;
+    function typeNext(): void {
+      i += 1;
+      line.textContent = text.slice(0, i);
+      if (i < text.length) {
+        setTimeout(typeNext, TYPE_CHAR_MS);
+      } else {
+        resolve(line);
+      }
+    }
+    setTimeout(typeNext, TYPE_CHAR_MS);
+  });
+}
+
+function terminalProgress(
+  host: HTMLElement,
+  label: string,
+): { track: HTMLElement; fill: HTMLElement; readout: HTMLElement } {
+  const row = document.createElement("div");
+  row.className = "term-progress-row";
+
   const track = document.createElement("div");
-  track.className = "align-progress-track";
+  track.className = "term-progress-track";
   track.setAttribute("role", "progressbar");
   track.setAttribute("aria-valuemin", "0");
   track.setAttribute("aria-valuemax", "100");
@@ -90,80 +123,154 @@ function createAlignmentProgress(body: HTMLElement, label: string): { track: HTM
   track.setAttribute("aria-label", label);
 
   const fill = document.createElement("div");
-  fill.className = "align-progress-fill";
+  fill.className = "term-progress-fill";
   track.appendChild(fill);
-  body.appendChild(track);
-  return { track, fill };
+  row.appendChild(track);
+
+  const readout = document.createElement("span");
+  readout.className = "term-progress-readout";
+  readout.textContent = "0%";
+  row.appendChild(readout);
+
+  host.appendChild(row);
+  return { track, fill, readout };
 }
 
-function animateAlignmentProgress(
+function animateTerminalProgress(
   track: HTMLElement,
   fill: HTMLElement,
+  readout: HTMLElement,
   targetPercent: number,
   durationMs: number,
 ): Promise<void> {
   return new Promise((resolve) => {
-    fill.style.transitionDuration = `${durationMs}ms`;
-    requestAnimationFrame(() => {
-      fill.style.width = `${targetPercent}%`;
-      track.setAttribute("aria-valuenow", String(targetPercent));
-    });
-    setTimeout(resolve, durationMs);
+    const start = performance.now();
+    function tick(now: number): void {
+      const t = Math.min((now - start) / durationMs, 1);
+      const value = t * targetPercent;
+      const rounded = Math.round(value);
+      fill.style.width = `${value}%`;
+      track.setAttribute("aria-valuenow", String(rounded));
+      readout.textContent = `${rounded}%`;
+      if (t < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        resolve();
+      }
+    }
+    requestAnimationFrame(tick);
   });
 }
 
-async function runAlignmentStep(stage: HTMLElement, index: number, title: string, message: string): Promise<void> {
-  const { body } = createAlignmentWindow(stage, index, title);
-  paragraph(body, message);
-  const { track, fill } = createAlignmentProgress(body, message);
-  await animateAlignmentProgress(track, fill, 100, 1500);
+const STUCK_PRECISION_LABELS = ["42%", "42.0%", "42.00%", "42.000%", "42.000000%"];
+
+async function escalateStuckPrecision(readout: HTMLElement): Promise<void> {
+  for (const label of STUCK_PRECISION_LABELS) {
+    readout.textContent = label;
+    await sleep(500);
+  }
 }
 
-function runAlignmentCompleteWindow(stage: HTMLElement, index: number, title: string): void {
-  const { body } = createAlignmentWindow(stage, index, title);
-  paragraph(body, "Reality Alignment Complete.");
-  paragraph(body, "Current environment verified.");
+async function runTerminalStep(terminal: HTMLElement, message: string, durationMs: number): Promise<void> {
+  await typeLine(terminal, `> ${message}`);
+  const { track, fill, readout } = terminalProgress(terminal, message);
+  await animateTerminalProgress(track, fill, readout, 100, durationMs);
 }
 
-async function runExternalVerificationWindow(
-  stage: HTMLElement,
-  index: number,
-  container: HTMLElement,
-  nav: NavActions,
-): Promise<void> {
-  const { body } = createAlignmentWindow(stage, index, "External reality verification");
-  const { track, fill } = createAlignmentProgress(body, "External reality verification");
-  await animateAlignmentProgress(track, fill, 42, 1200);
-  await sleep(3000);
-  paragraph(body, "Verification failed.");
-  actionButton(container, "Close Session", nav.restart);
+function createSystemWindow(
+  layer: HTMLElement,
+  title: string,
+  offsetYPx: number,
+  maxWidth: string,
+  offsetXPx = 0,
+): { root: HTMLElement; body: HTMLElement } {
+  const root = document.createElement("div");
+  root.className = "sys-window";
+  root.style.top = `calc(50vh + ${offsetYPx}px)`;
+  root.style.left = `calc(50% + ${offsetXPx}px)`;
+  root.style.maxWidth = maxWidth;
+
+  const titleBar = document.createElement("div");
+  titleBar.className = "sys-window-title";
+  titleBar.textContent = title;
+
+  const body = document.createElement("div");
+  body.className = "sys-window-body";
+
+  root.append(titleBar, body);
+  layer.appendChild(root);
+  return { root, body };
 }
 
-async function runAlignmentSequence(stage: HTMLElement, container: HTMLElement, nav: NavActions): Promise<void> {
-  const processTitle = "Reality Alignment Process";
-
-  await runAlignmentStep(stage, 0, processTitle, "Checking reality consistency...");
+async function runAlignmentSequence(terminal: HTMLElement, windowsLayer: HTMLElement, nav: NavActions): Promise<void> {
+  await typeLine(terminal, "REALITY ALIGNMENT");
+  await sleep(300);
+  await runTerminalStep(terminal, "Checking reality consistency...", 1650);
+  await sleep(300);
+  await runTerminalStep(terminal, "Aligning environment...", 1650);
+  await sleep(300);
+  await runTerminalStep(terminal, "Restoring stable state...", 1650);
   await sleep(400);
-  await runAlignmentStep(stage, 1, processTitle, "Aligning environment...");
-  await sleep(400);
-  await runAlignmentStep(stage, 2, processTitle, "Restoring stable state...");
-  await sleep(400);
+  await typeLine(terminal, "Reality Alignment Complete.");
+  await typeLine(terminal, "Current environment verified.");
+  await sleep(800);
 
-  runAlignmentCompleteWindow(stage, 3, processTitle);
-  await sleep(1200);
+  await typeLine(terminal, "");
+  await typeLine(terminal, "> Initiating external reality verification...");
+  await sleep(600);
+  await typeLine(terminal, "> Checking external reality...");
+  const check = terminalProgress(terminal, "Checking external reality");
+  await animateTerminalProgress(check.track, check.fill, check.readout, 42, 2000);
+  await escalateStuckPrecision(check.readout);
+  await sleep(600);
 
-  await runExternalVerificationWindow(stage, 4, container, nav);
+  await typeLine(terminal, "External verification unavailable.");
+  await typeLine(terminal, "Manual continuation required.");
+  const prompt = await typeLine(terminal, "Press ENTER to continue.");
+  prompt.classList.add("term-prompt");
+  await waitForEnter();
+
+  const verifyWindow = createSystemWindow(windowsLayer, "EXTERNAL REALITY VERIFICATION", -95, "420px", -18);
+  paragraph(verifyWindow.body, "Checking...");
+  const verify = terminalProgress(verifyWindow.body, "External reality verification");
+  await animateTerminalProgress(verify.track, verify.fill, verify.readout, 42, 2000);
+  await escalateStuckPrecision(verify.readout);
+  await sleep(600);
+
+  const errorWindow = createSystemWindow(windowsLayer, "ERROR", 0, "320px", 18);
+  paragraph(errorWindow.body, "Verification failed.");
+  await sleep(1500);
+
+  const statusWindow = createSystemWindow(windowsLayer, "SYSTEM STATUS", 95, "380px");
+  paragraph(statusWindow.body, "External reality status:");
+  paragraph(statusWindow.body, "unknown.");
+
+  await sleep(700);
+
+  const debugRef = document.createElement("div");
+  debugRef.className = "debug-reference";
+  windowsLayer.appendChild(debugRef);
+
+  await typeLine(debugRef, "reference:");
+  await typeLine(debugRef, "Brain in a Vat");
+  await typeLine(debugRef, "ESC → return to reality?");
+
+  await waitForEscape();
+  nav.restart();
 }
 
 function renderReflection(container: HTMLElement, nav: NavActions): void {
-  heading(container, "Reality Alignment");
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
 
-  const stage = document.createElement("div");
-  stage.className = "alignment-stage";
-  stage.setAttribute("aria-live", "polite");
-  container.appendChild(stage);
+  const windowsLayer = document.createElement("div");
+  windowsLayer.className = "sys-windows-layer";
+  windowsLayer.setAttribute("aria-live", "polite");
+  container.appendChild(windowsLayer);
 
-  void runAlignmentSequence(stage, container, nav);
+  void runAlignmentSequence(terminal, windowsLayer, nav);
 }
 
 const SEQUENCE: Render[] = [

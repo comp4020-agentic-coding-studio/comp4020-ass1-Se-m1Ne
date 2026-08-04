@@ -7,13 +7,15 @@ body {
 body {
   display: flex;
   flex-direction: column;
-  font-family: system-ui, sans-serif;
+  background: #0a0d11;
+  color: #c7d0d9;
+  font-family: "Courier New", ui-monospace, monospace;
+  font-size: 1.05rem;
   line-height: 1.6;
-  color: #1a1a1a;
 }
 
 header {
-  padding: 1rem 2rem;
+  padding: 0.75rem 2rem;
 }
 
 main {
@@ -28,81 +30,186 @@ main {
   flex-direction: column;
   gap: 1rem;
   padding: 2rem;
+  max-width: 42rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.4rem, 4vw, 2rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #eef3f7;
+}
+
+p {
+  margin: 0;
+  color: #b6c1cc;
 }
 
 a {
-  color: #0b5fff;
+  color: #5fd4ff;
 }
 
 button {
-  padding: 0.6rem 1.25rem;
-  border: 1px solid #0b5fff;
-  border-radius: 0.25rem;
-  background: #0b5fff;
-  color: #fff;
+  align-self: flex-start;
+  padding: 0.65rem 1.4rem;
+  border: 1px solid #56626d;
+  border-radius: 0;
+  background: #12161b;
+  color: #dce4ea;
+  font-family: inherit;
   font-size: 1rem;
   cursor: pointer;
 }
 
 button:hover {
-  background: #094ecc;
+  background: #1b2127;
+  border-color: #7c8a96;
 }
 
 button:focus-visible,
 h1:focus-visible {
-  outline: 3px solid #094ecc;
-  outline-offset: 2px;
+  outline: 2px solid #5fd4ff;
+  outline-offset: 3px;
 }
 
-.alignment-stage {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.align-window {
+.align-terminal {
   width: 100%;
-  max-width: 240px;
-  border: 1px solid #b8b8b8;
-  border-radius: 0.25rem;
-  background: #fafafa;
-  font-family: "Courier New", monospace;
-  font-size: 0.85rem;
+  max-width: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #d8e2ea;
+  font-family: "Courier New", ui-monospace, monospace;
+  font-size: clamp(1rem, 2.5vw, 1.35rem);
+  line-height: 1.8;
+}
+
+.term-line {
+  min-height: 1.8em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.term-prompt {
+  color: #fff;
+}
+
+.debug-reference {
+  position: fixed;
+  right: 1.75rem;
+  bottom: 1.75rem;
+  text-align: right;
+  font-family: "Courier New", ui-monospace, monospace;
+  font-size: 0.9rem;
+  line-height: 1.25;
+  color: #8a8f95;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.debug-reference .term-line {
+  min-height: 1.25em;
+}
+
+.term-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.term-progress-track {
+  flex: 1;
+  height: 0.9rem;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 0;
   overflow: hidden;
 }
 
-.align-window-title {
-  padding: 0.3rem 0.6rem;
-  background: #e2e2e2;
-  color: #333;
-  font-size: 0.7rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.align-window-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.5rem 0.6rem;
-}
-
-.align-window-body p {
-  margin: 0;
-}
-
-.align-progress-track {
-  width: 100%;
-  height: 0.4rem;
-  border-radius: 999px;
-  background: #e2e2e2;
-  overflow: hidden;
-}
-
-.align-progress-fill {
+.term-progress-fill {
   width: 0%;
   height: 100%;
-  background: #0b5fff;
-  transition-property: width;
-  transition-timing-function: linear;
+  background: #d8d8d8;
+}
+
+.term-progress-readout {
+  min-width: 7ch;
+  text-align: right;
+}
+
+.sys-window {
+  position: fixed;
+  left: 50%;
+  width: 92vw;
+  transform: translate(-50%, -50%);
+  border: 1px solid #808890;
+  border-radius: 0;
+  background: #e4e6e8;
+  color: #1a1a1a;
+  font-family: "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
+  font-size: 0.95rem;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
+}
+
+.sys-window-title {
+  padding: 0.45rem 0.8rem;
+  background: #d3d6d9;
+  color: #1a1a1a;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid #808890;
+}
+
+.sys-window-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.8rem 0.9rem;
+  background: #e4e6e8;
+}
+
+.sys-window-body p {
+  margin: 0;
+  color: inherit;
+  font-family: inherit;
+}
+
+.sys-window-body .term-progress-track {
+  height: 0.5rem;
+  background: #e0e0e0;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.sys-window-body .term-progress-fill {
+  background: #0067c0;
+}
+
+.sys-window-body .term-progress-readout {
+  color: #3a3a3a;
+}
+
+.sys-window-body button {
+  align-self: flex-end;
+  border: 1px solid #808890;
+  border-radius: 0;
+  background: #0067c0;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 1.1rem;
+}
+
+.sys-window-body button:hover {
+  background: #0078d4;
+}
+
+.sys-window-body button:active {
+  background: #005a9e;
 }
