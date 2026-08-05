@@ -3,6 +3,9 @@ import task2BackgroundUrl from "./assets/task02-light-placement-background-v1.pn
 import task2StarUrl from "./assets/task02-star.png";
 import task2MoonUrl from "./assets/task02-moon.png";
 import task2SunUrl from "./assets/task02-sun.png";
+import task3BackgroundUrl from "./assets/task03-rainfall-background-v1.png";
+import task3StormCloudUrl from "./assets/task03-storm-cloud.png";
+import task3WhiteCloudUrl from "./assets/task03-white-cloud.png";
 
 interface NavActions {
   next: () => void;
@@ -170,7 +173,7 @@ function renderBriefing(container: HTMLElement, nav: NavActions): void {
   container.appendChild(h1);
 
   const terminal = document.createElement("div");
-  terminal.className = "align-terminal";
+  terminal.className = "align-terminal briefing-terminal";
   terminal.setAttribute("aria-live", "polite");
   container.appendChild(terminal);
 
@@ -582,7 +585,7 @@ async function runTask1Sequence(
 }
 
 const TASK2_HEADING = "LIGHT SOURCE CONFIGURATION";
-const TASK2_INSTRUCTION = "Place light sources in the sky.";
+const TASK2_INSTRUCTION = "Place light sources.";
 
 const TASK2_WIDTH = 640;
 const TASK2_HEIGHT = 360;
@@ -904,6 +907,597 @@ async function runTask2Sequence(
 
   controls.classList.add("task1-reveal-in");
   workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
+}
+
+const TASK3_HEADING = "WEATHER CONFIGURATION";
+const TASK3_INSTRUCTION = "Configure cloud type and position.";
+
+const TASK3_WIDTH = 640;
+const TASK3_HEIGHT = 360;
+
+type Task3SourceType = "storm-cloud" | "white-cloud";
+
+const TASK3_SOURCE_DEFS: { type: Task3SourceType; label: string }[] = [
+  { type: "storm-cloud", label: "STORM CLOUD" },
+  { type: "white-cloud", label: "WHITE CLOUD" },
+];
+
+interface Task3PlacedObject {
+  type: Task3SourceType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  el: HTMLImageElement;
+}
+
+interface Task3DragTracker {
+  current: (() => void) | null;
+}
+
+function task3ToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * TASK3_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * TASK3_HEIGHT,
+  };
+}
+
+function task3IsInsideRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function watchTask3Detachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function buildTask3Interface(
+  background: HTMLImageElement,
+  sprites: Record<Task3SourceType, HTMLImageElement>,
+  dragTracker: Task3DragTracker,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "task3-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "task3-background";
+  frame.appendChild(backgroundImg);
+
+  const scene = document.createElement("div");
+  scene.className = "task3-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Weather placement area. Drag storm clouds and white clouds into this area.");
+  frame.appendChild(scene);
+
+  function applyPosition(obj: Task3PlacedObject): void {
+    const leftPercent = ((obj.x - obj.width / 2) / TASK3_WIDTH) * 100;
+    const topPercent = ((obj.y - obj.height / 2) / TASK3_HEIGHT) * 100;
+    obj.el.style.left = `${leftPercent}%`;
+    obj.el.style.top = `${topPercent}%`;
+  }
+
+  function wireDraggableObject(obj: Task3PlacedObject): void {
+    obj.el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      obj.el.setPointerCapture(event.pointerId);
+      const startX = obj.x;
+      const startY = obj.y;
+      const pointerId = event.pointerId;
+
+      function onMove(moveEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        const { x, y } = task3ToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+        obj.x = x;
+        obj.y = y;
+        applyPosition(obj);
+      }
+
+      function finish(clientX: number, clientY: number, cancelled: boolean): void {
+        obj.el.removeEventListener("pointermove", onMove);
+        obj.el.removeEventListener("pointerup", onUp);
+        obj.el.removeEventListener("pointercancel", onCancel);
+        if (obj.el.hasPointerCapture(pointerId)) {
+          obj.el.releasePointerCapture(pointerId);
+        }
+        dragTracker.current = null;
+        const rect = scene.getBoundingClientRect();
+        if (!cancelled && task3IsInsideRect(clientX, clientY, rect)) {
+          obj.x = clampRange(obj.x, obj.width / 2, TASK3_WIDTH - obj.width / 2);
+          obj.y = clampRange(obj.y, obj.height / 2, TASK3_HEIGHT - obj.height / 2);
+        } else {
+          obj.x = startX;
+          obj.y = startY;
+        }
+        applyPosition(obj);
+      }
+
+      function onUp(upEvent: PointerEvent): void {
+        finish(upEvent.clientX, upEvent.clientY, false);
+      }
+
+      function onCancel(): void {
+        finish(0, 0, true);
+      }
+
+      dragTracker.current = onCancel;
+      obj.el.addEventListener("pointermove", onMove);
+      obj.el.addEventListener("pointerup", onUp);
+      obj.el.addEventListener("pointercancel", onCancel);
+    });
+  }
+
+  function createPlacedObject(type: Task3SourceType, x: number, y: number): void {
+    const sprite = sprites[type];
+    const width = sprite.naturalWidth;
+    const height = sprite.naturalHeight;
+
+    const el = document.createElement("img");
+    el.src = sprite.src;
+    el.alt = "";
+    el.setAttribute("aria-hidden", "true");
+    el.className = "task3-placed";
+    el.style.width = `${(width / TASK3_WIDTH) * 100}%`;
+
+    const obj: Task3PlacedObject = {
+      type,
+      x: clampRange(x, width / 2, TASK3_WIDTH - width / 2),
+      y: clampRange(y, height / 2, TASK3_HEIGHT - height / 2),
+      width,
+      height,
+      el,
+    };
+    applyPosition(obj);
+    scene.appendChild(el);
+    wireDraggableObject(obj);
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "task3-controls";
+
+  for (const def of TASK3_SOURCE_DEFS) {
+    const sprite = sprites[def.type];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "task3-source";
+    button.setAttribute("aria-label", `Place ${def.type}`);
+
+    const image = document.createElement("img");
+    image.src = sprite.src;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.className = "task3-source-image";
+    button.appendChild(image);
+
+    const label = document.createElement("span");
+    label.className = "task3-source-label";
+    label.textContent = def.label;
+    button.appendChild(label);
+
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      button.classList.add("task3-source-active");
+      const pointerId = event.pointerId;
+
+      const ghost = document.createElement("img");
+      ghost.src = sprite.src;
+      ghost.alt = "";
+      ghost.className = "task3-drag-ghost";
+      const startRect = scene.getBoundingClientRect();
+      ghost.style.width = `${(sprite.naturalWidth / TASK3_WIDTH) * startRect.width}px`;
+      ghost.style.left = `${event.clientX}px`;
+      ghost.style.top = `${event.clientY}px`;
+      document.body.appendChild(ghost);
+
+      function onMove(moveEvent: PointerEvent): void {
+        ghost.style.left = `${moveEvent.clientX}px`;
+        ghost.style.top = `${moveEvent.clientY}px`;
+      }
+
+      function cleanup(): void {
+        if (button.hasPointerCapture(pointerId)) {
+          button.releasePointerCapture(pointerId);
+        }
+        button.removeEventListener("pointermove", onMove);
+        button.removeEventListener("pointerup", onUp);
+        button.removeEventListener("pointercancel", onCancel);
+        button.classList.remove("task3-source-active");
+        dragTracker.current = null;
+        ghost.remove();
+      }
+
+      function onUp(upEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        if (task3IsInsideRect(upEvent.clientX, upEvent.clientY, rect)) {
+          const { x, y } = task3ToNativeCoords(upEvent.clientX, upEvent.clientY, rect);
+          createPlacedObject(def.type, x, y);
+        }
+        cleanup();
+      }
+
+      function onCancel(): void {
+        cleanup();
+      }
+
+      dragTracker.current = onCancel;
+      button.addEventListener("pointermove", onMove);
+      button.addEventListener("pointerup", onUp);
+      button.addEventListener("pointercancel", onCancel);
+    });
+
+    controls.appendChild(button);
+  }
+
+  return { frame, controls };
+}
+
+function renderTask3(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runTask3Sequence(h1, terminal, container, nav);
+}
+
+async function runTask3Sequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, TASK3_HEADING);
+  await sleep(300);
+  await typeLine(terminal, TASK3_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, stormCloud, whiteCloud] = await Promise.all([
+    loadImage(task3BackgroundUrl),
+    loadImage(task3StormCloudUrl),
+    loadImage(task3WhiteCloudUrl),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null || stormCloud === null || whiteCloud === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: Task3DragTracker = { current: null };
+  const { frame, controls } = buildTask3Interface(
+    background,
+    { "storm-cloud": stormCloud, "white-cloud": whiteCloud },
+    dragTracker,
+  );
+
+  const workspace = document.createElement("div");
+  workspace.className = "task3-workspace";
+  container.appendChild(workspace);
+
+  watchTask3Detachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
+}
+
+const TASK4_HEADING = "DAY LENGTH CONFIGURATION";
+const TASK4_INSTRUCTION = "Set the duration of one day.";
+
+const TASK4_BASE_MINUTES = 0;
+
+interface Task4DragTracker {
+  current: (() => void) | null;
+}
+
+function task4NormalizeDelta(delta: number): number {
+  let d = delta % 360;
+  if (d > 180) {
+    d -= 360;
+  }
+  if (d < -180) {
+    d += 360;
+  }
+  return d;
+}
+
+function task4AngleFromCenter(clientX: number, clientY: number, rect: DOMRect): number {
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const dx = clientX - centerX;
+  const dy = clientY - centerY;
+  let angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+  if (angle < 0) {
+    angle += 360;
+  }
+  return angle;
+}
+
+function task4FormatDuration(totalMinutes: number): string {
+  const roundedMinutes = Math.round(totalMinutes);
+  const sign = roundedMinutes < 0 ? "-" : "+";
+  const absMinutes = Math.abs(roundedMinutes);
+  const hoursPart = Math.floor(absMinutes / 60);
+  const minutesPart = absMinutes % 60;
+  return `${sign}${String(hoursPart).padStart(5, "0")}:${String(minutesPart).padStart(2, "0")}`;
+}
+
+function watchTask4Detachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function buildTask4Interface(dragTracker: Task4DragTracker): { clock: HTMLElement; display: HTMLElement } {
+  const clock = document.createElement("div");
+  clock.className = "task4-clock";
+
+  const face = document.createElement("div");
+  face.className = "task4-face";
+  face.setAttribute("role", "group");
+  face.setAttribute("aria-label", "Day length clock. Drag the hour and minute hands to adjust the day length.");
+  clock.appendChild(face);
+
+  const ring = document.createElement("div");
+  ring.className = "task4-ring";
+  face.appendChild(ring);
+
+  const MARKER_RADIUS_PERCENT = 38;
+  for (let i = 0; i < 12; i += 1) {
+    const angle = i * 30;
+    const isMajor = i % 3 === 0;
+    const marker = document.createElement("div");
+    marker.className = isMajor ? "task4-marker task4-marker-major" : "task4-marker";
+    const rad = (angle * Math.PI) / 180;
+    marker.style.left = `${50 + MARKER_RADIUS_PERCENT * Math.sin(rad)}%`;
+    marker.style.top = `${50 - MARKER_RADIUS_PERCENT * Math.cos(rad)}%`;
+    marker.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+    face.appendChild(marker);
+  }
+
+  const hourHand = document.createElement("div");
+  hourHand.className = "task4-hand task4-hand-hour";
+  face.appendChild(hourHand);
+
+  const minuteHand = document.createElement("div");
+  minuteHand.className = "task4-hand task4-hand-minute";
+  face.appendChild(minuteHand);
+
+  const hub = document.createElement("div");
+  hub.className = "task4-hub";
+  face.appendChild(hub);
+
+  const hourHit = document.createElement("button");
+  hourHit.type = "button";
+  hourHit.className = "task4-hand-hit task4-hand-hit-hour";
+  hourHit.setAttribute("aria-label", "Hour hand. Drag to adjust the day length.");
+  face.appendChild(hourHit);
+
+  const minuteHit = document.createElement("button");
+  minuteHit.type = "button";
+  minuteHit.className = "task4-hand-hit task4-hand-hit-minute";
+  minuteHit.setAttribute("aria-label", "Minute hand. Drag to adjust the day length.");
+  face.appendChild(minuteHit);
+
+  const display = document.createElement("div");
+  display.className = "task4-display";
+
+  const displayLabel = document.createElement("div");
+  displayLabel.className = "task4-display-label";
+  displayLabel.textContent = "DAY LENGTH";
+  display.appendChild(displayLabel);
+
+  const displayValue = document.createElement("div");
+  displayValue.className = "task4-display-value";
+  displayValue.textContent = task4FormatDuration(TASK4_BASE_MINUTES);
+  display.appendChild(displayValue);
+
+  let hourTotalDegrees = 0;
+  let minuteTotalDegrees = 0;
+
+  function updateDisplay(): void {
+    const totalMinutes = TASK4_BASE_MINUTES + (hourTotalDegrees / 30) * 60 + minuteTotalDegrees / 6;
+    displayValue.textContent = task4FormatDuration(totalMinutes);
+  }
+
+  function wireHand(hit: HTMLElement, handEl: HTMLElement, applyDelta: (delta: number) => void): void {
+    hit.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      hit.setPointerCapture(event.pointerId);
+      const pointerId = event.pointerId;
+      let lastAngle = task4AngleFromCenter(event.clientX, event.clientY, face.getBoundingClientRect());
+
+      function onMove(moveEvent: PointerEvent): void {
+        const rect = face.getBoundingClientRect();
+        const angle = task4AngleFromCenter(moveEvent.clientX, moveEvent.clientY, rect);
+        const delta = task4NormalizeDelta(angle - lastAngle);
+        applyDelta(delta);
+        lastAngle = angle;
+        hit.style.transform = `rotate(${angle}deg)`;
+        handEl.style.transform = `rotate(${angle}deg)`;
+        updateDisplay();
+      }
+
+      function cleanup(): void {
+        hit.removeEventListener("pointermove", onMove);
+        hit.removeEventListener("pointerup", onUp);
+        hit.removeEventListener("pointercancel", onCancel);
+        if (hit.hasPointerCapture(pointerId)) {
+          hit.releasePointerCapture(pointerId);
+        }
+        dragTracker.current = null;
+      }
+
+      function onUp(): void {
+        cleanup();
+      }
+      function onCancel(): void {
+        cleanup();
+      }
+
+      dragTracker.current = onCancel;
+      hit.addEventListener("pointermove", onMove);
+      hit.addEventListener("pointerup", onUp);
+      hit.addEventListener("pointercancel", onCancel);
+    });
+  }
+
+  wireHand(hourHit, hourHand, (delta) => {
+    hourTotalDegrees += delta;
+  });
+
+  wireHand(minuteHit, minuteHand, (delta) => {
+    minuteTotalDegrees += delta;
+  });
+
+  return { clock, display };
+}
+
+function renderTask4(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runTask4Sequence(h1, terminal, container, nav);
+}
+
+async function runTask4Sequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, TASK4_HEADING);
+  await sleep(300);
+  await typeLine(terminal, TASK4_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const dragTracker: Task4DragTracker = { current: null };
+  const { clock, display } = buildTask4Interface(dragTracker);
+
+  const workspace = document.createElement("div");
+  workspace.className = "task4-workspace";
+  container.appendChild(workspace);
+
+  watchTask4Detachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  clock.classList.add("task1-reveal-in");
+  workspace.appendChild(clock);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  display.classList.add("task1-reveal-in");
+  workspace.appendChild(display);
   await sleep(120);
   if (!terminal.isConnected) {
     return;
@@ -1239,7 +1833,9 @@ const SEQUENCE: Render[] = [
   renderBriefing,
   renderTask1,
   renderTask2,
-  ...Array.from({ length: 18 }, (_, i) => renderTaskPlaceholder(i + 3)),
+  renderTask3,
+  renderTask4,
+  ...Array.from({ length: 16 }, (_, i) => renderTaskPlaceholder(i + 5)),
   renderChoice,
   renderReflection,
 ];

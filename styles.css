@@ -132,6 +132,14 @@ h1:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.briefing-terminal {
+  line-height: 2.5;
+}
+
+.briefing-terminal .term-line {
+  margin-bottom: 0.7rem;
+}
+
 .term-prompt {
   color: #fff;
 }
@@ -444,6 +452,263 @@ h1:focus-visible {
   .task2-controls {
     max-width: none;
     flex-flow: row wrap;
+  }
+}
+
+.task3-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.5rem;
+  max-width: calc(1050px + 1.5rem + 13rem);
+  margin-top: -0.5rem;
+}
+
+.task3-frame {
+  position: relative;
+  width: min(100%, 1050px, calc((100vh - 18rem) * 16 / 9));
+  aspect-ratio: 640 / 360;
+  border: 1px solid #56626d;
+  overflow: hidden;
+}
+
+.task3-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.task3-scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.task3-placed {
+  position: absolute;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+  cursor: grab;
+}
+
+.task3-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+  align-self: start;
+  max-width: 13rem;
+}
+
+.task3-source {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  touch-action: none;
+}
+
+.task3-source-image {
+  width: auto;
+  height: 2.4rem;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.task3-source-active {
+  border-color: #7e9e99;
+  background: #1b2127;
+}
+
+.task3-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1000;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+@media (width <= 768px) {
+  .task3-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .task3-controls {
+    max-width: none;
+    flex-flow: row wrap;
+  }
+}
+
+.task4-workspace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 3.5rem;
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
+.task4-clock {
+  position: relative;
+  width: min(42vw, 420px, 52vh);
+  aspect-ratio: 1;
+  flex-shrink: 0;
+}
+
+.task4-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #11171c;
+  border: 2px solid #5f7774;
+  box-sizing: border-box;
+}
+
+.task4-ring {
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  border: 1px solid #263332;
+  pointer-events: none;
+}
+
+.task4-marker {
+  position: absolute;
+  width: 0.71%;
+  height: 3.33%;
+  background: #5f7774;
+  pointer-events: none;
+}
+
+.task4-marker-major {
+  width: 0.95%;
+  height: 4.76%;
+  background: #7e9e99;
+}
+
+.task4-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3.33%;
+  height: 3.33%;
+  transform: translate(-50%, -50%);
+  background: #7e9e99;
+  pointer-events: none;
+}
+
+.task4-hand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center bottom;
+  pointer-events: none;
+}
+
+.task4-hand-hour {
+  width: 1.43%;
+  height: 24%;
+  margin-left: -0.715%;
+  margin-top: -24%;
+  background: #7e9e99;
+}
+
+.task4-hand-minute {
+  width: 0.83%;
+  height: 34.5%;
+  margin-left: -0.415%;
+  margin-top: -34.5%;
+  background: #b7c8c5;
+}
+
+.task4-hand-hit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center bottom;
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.task4-hand-hit:focus-visible {
+  outline: 2px solid #7e9e99;
+  outline-offset: 2px;
+}
+
+.task4-hand-hit-hour {
+  width: 8.5%;
+  height: 26%;
+  margin-left: -4.25%;
+  margin-top: -26%;
+  z-index: 4;
+}
+
+.task4-hand-hit-minute {
+  width: 6%;
+  height: 39.3%;
+  margin-left: -3%;
+  margin-top: -39.3%;
+  z-index: 3;
+}
+
+.task4-display {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(100%, 340px);
+  min-height: 150px;
+  padding: 1.25rem 1.5rem;
+  background: #11171c;
+  border: 2px solid #5f7774;
+  box-sizing: border-box;
+}
+
+.task4-display-label {
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  color: #71817f;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #263332;
+}
+
+.task4-display-value {
+  font-family: "Courier New", ui-monospace, monospace;
+  font-size: 3.25rem;
+  color: #b7c8c5;
+  letter-spacing: 0.02em;
+}
+
+@media (width <= 768px) {
+  .task4-workspace {
+    flex-direction: column;
+    gap: 1.375rem;
+  }
+
+  .task4-clock {
+    width: min(78vw, 330px, 45vh);
+  }
+
+  .task4-display {
+    width: min(100%, 330px);
+    min-height: 130px;
+    padding: 1rem 1.25rem;
+  }
+
+  .task4-display-value {
+    font-size: 2.25rem;
   }
 }
 
