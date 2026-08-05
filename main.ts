@@ -1,4 +1,8 @@
 import skyImageUrl from "./assets/task01-sky-canvas-transparent-v4.png";
+import task2BackgroundUrl from "./assets/task02-light-placement-background-v1.png";
+import task2StarUrl from "./assets/task02-star.png";
+import task2MoonUrl from "./assets/task02-moon.png";
+import task2SunUrl from "./assets/task02-sun.png";
 
 interface NavActions {
   next: () => void;
@@ -577,6 +581,342 @@ async function runTask1Sequence(
   container.appendChild(nextButton);
 }
 
+const TASK2_HEADING = "LIGHT SOURCE CONFIGURATION";
+const TASK2_INSTRUCTION = "Place light sources in the sky.";
+
+const TASK2_WIDTH = 640;
+const TASK2_HEIGHT = 360;
+
+type Task2SourceType = "star" | "moon" | "sun";
+
+const TASK2_SOURCE_DEFS: { type: Task2SourceType; label: string }[] = [
+  { type: "star", label: "STAR" },
+  { type: "moon", label: "MOON" },
+  { type: "sun", label: "SUN" },
+];
+
+interface Task2PlacedObject {
+  type: Task2SourceType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  el: HTMLImageElement;
+}
+
+interface Task2DragTracker {
+  current: (() => void) | null;
+}
+
+function task2ToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * TASK2_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * TASK2_HEIGHT,
+  };
+}
+
+function task2IsInsideRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function clampRange(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function watchTask2Detachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function buildTask2Interface(
+  background: HTMLImageElement,
+  sprites: Record<Task2SourceType, HTMLImageElement>,
+  dragTracker: Task2DragTracker,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "task2-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "task2-background";
+  frame.appendChild(backgroundImg);
+
+  const scene = document.createElement("div");
+  scene.className = "task2-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Sky placement area. Drag stars, moons and suns into this area.");
+  frame.appendChild(scene);
+
+  function applyPosition(obj: Task2PlacedObject): void {
+    const leftPercent = ((obj.x - obj.width / 2) / TASK2_WIDTH) * 100;
+    const topPercent = ((obj.y - obj.height / 2) / TASK2_HEIGHT) * 100;
+    obj.el.style.left = `${leftPercent}%`;
+    obj.el.style.top = `${topPercent}%`;
+  }
+
+  function wireDraggableObject(obj: Task2PlacedObject): void {
+    obj.el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      obj.el.setPointerCapture(event.pointerId);
+      const startX = obj.x;
+      const startY = obj.y;
+      const pointerId = event.pointerId;
+
+      function onMove(moveEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        const { x, y } = task2ToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+        obj.x = x;
+        obj.y = y;
+        applyPosition(obj);
+      }
+
+      function finish(clientX: number, clientY: number, cancelled: boolean): void {
+        obj.el.removeEventListener("pointermove", onMove);
+        obj.el.removeEventListener("pointerup", onUp);
+        obj.el.removeEventListener("pointercancel", onCancel);
+        if (obj.el.hasPointerCapture(pointerId)) {
+          obj.el.releasePointerCapture(pointerId);
+        }
+        dragTracker.current = null;
+        const rect = scene.getBoundingClientRect();
+        if (!cancelled && task2IsInsideRect(clientX, clientY, rect)) {
+          obj.x = clampRange(obj.x, obj.width / 2, TASK2_WIDTH - obj.width / 2);
+          obj.y = clampRange(obj.y, obj.height / 2, TASK2_HEIGHT - obj.height / 2);
+        } else {
+          obj.x = startX;
+          obj.y = startY;
+        }
+        applyPosition(obj);
+      }
+
+      function onUp(upEvent: PointerEvent): void {
+        finish(upEvent.clientX, upEvent.clientY, false);
+      }
+
+      function onCancel(): void {
+        finish(0, 0, true);
+      }
+
+      dragTracker.current = onCancel;
+      obj.el.addEventListener("pointermove", onMove);
+      obj.el.addEventListener("pointerup", onUp);
+      obj.el.addEventListener("pointercancel", onCancel);
+    });
+  }
+
+  function createPlacedObject(type: Task2SourceType, x: number, y: number): void {
+    const sprite = sprites[type];
+    const width = sprite.naturalWidth;
+    const height = sprite.naturalHeight;
+
+    const el = document.createElement("img");
+    el.src = sprite.src;
+    el.alt = "";
+    el.setAttribute("aria-hidden", "true");
+    el.className = "task2-placed";
+    el.style.width = `${(width / TASK2_WIDTH) * 100}%`;
+
+    const obj: Task2PlacedObject = {
+      type,
+      x: clampRange(x, width / 2, TASK2_WIDTH - width / 2),
+      y: clampRange(y, height / 2, TASK2_HEIGHT - height / 2),
+      width,
+      height,
+      el,
+    };
+    applyPosition(obj);
+    scene.appendChild(el);
+    wireDraggableObject(obj);
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "task2-controls";
+
+  for (const def of TASK2_SOURCE_DEFS) {
+    const sprite = sprites[def.type];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "task2-source";
+    button.setAttribute("aria-label", `Place ${def.type}`);
+
+    const image = document.createElement("img");
+    image.src = sprite.src;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.className = "task2-source-image";
+    button.appendChild(image);
+
+    const label = document.createElement("span");
+    label.className = "task2-source-label";
+    label.textContent = def.label;
+    button.appendChild(label);
+
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      button.classList.add("task2-source-active");
+      const pointerId = event.pointerId;
+
+      const ghost = document.createElement("img");
+      ghost.src = sprite.src;
+      ghost.alt = "";
+      ghost.className = "task2-drag-ghost";
+      const startRect = scene.getBoundingClientRect();
+      ghost.style.width = `${(sprite.naturalWidth / TASK2_WIDTH) * startRect.width}px`;
+      ghost.style.left = `${event.clientX}px`;
+      ghost.style.top = `${event.clientY}px`;
+      document.body.appendChild(ghost);
+
+      function onMove(moveEvent: PointerEvent): void {
+        ghost.style.left = `${moveEvent.clientX}px`;
+        ghost.style.top = `${moveEvent.clientY}px`;
+      }
+
+      function cleanup(): void {
+        if (button.hasPointerCapture(pointerId)) {
+          button.releasePointerCapture(pointerId);
+        }
+        button.removeEventListener("pointermove", onMove);
+        button.removeEventListener("pointerup", onUp);
+        button.removeEventListener("pointercancel", onCancel);
+        button.classList.remove("task2-source-active");
+        dragTracker.current = null;
+        ghost.remove();
+      }
+
+      function onUp(upEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        if (task2IsInsideRect(upEvent.clientX, upEvent.clientY, rect)) {
+          const { x, y } = task2ToNativeCoords(upEvent.clientX, upEvent.clientY, rect);
+          createPlacedObject(def.type, x, y);
+        }
+        cleanup();
+      }
+
+      function onCancel(): void {
+        cleanup();
+      }
+
+      dragTracker.current = onCancel;
+      button.addEventListener("pointermove", onMove);
+      button.addEventListener("pointerup", onUp);
+      button.addEventListener("pointercancel", onCancel);
+    });
+
+    controls.appendChild(button);
+  }
+
+  return { frame, controls };
+}
+
+function renderTask2(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runTask2Sequence(h1, terminal, container, nav);
+}
+
+async function runTask2Sequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, TASK2_HEADING);
+  await sleep(300);
+  await typeLine(terminal, TASK2_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, star, moon, sun] = await Promise.all([
+    loadImage(task2BackgroundUrl),
+    loadImage(task2StarUrl),
+    loadImage(task2MoonUrl),
+    loadImage(task2SunUrl),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null || star === null || moon === null || sun === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: Task2DragTracker = { current: null };
+  const { frame, controls } = buildTask2Interface(background, { star, moon, sun }, dragTracker);
+
+  const workspace = document.createElement("div");
+  workspace.className = "task2-workspace";
+  container.appendChild(workspace);
+
+  watchTask2Detachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
+}
+
 const CHOICE_LINES = [
   "> The environment has been aligned.",
   "",
@@ -898,7 +1238,8 @@ const SEQUENCE: Render[] = [
   renderWelcome,
   renderBriefing,
   renderTask1,
-  ...Array.from({ length: 19 }, (_, i) => renderTaskPlaceholder(i + 2)),
+  renderTask2,
+  ...Array.from({ length: 18 }, (_, i) => renderTaskPlaceholder(i + 3)),
   renderChoice,
   renderReflection,
 ];
