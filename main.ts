@@ -1,3 +1,5 @@
+import skyImageUrl from "./assets/task01-sky-canvas-transparent-v4.png";
+
 interface NavActions {
   next: () => void;
   restart: () => void;
@@ -18,10 +20,16 @@ function paragraph(container: HTMLElement, text: string): void {
   container.appendChild(p);
 }
 
-function actionButton(container: HTMLElement, label: string, onClick: () => void): void {
+const SYSTEM_ACTION_PRIMARY = "system-action system-action-primary";
+const SYSTEM_ACTION_SECONDARY = "system-action system-action-secondary";
+
+function actionButton(container: HTMLElement, label: string, onClick: () => void, className?: string): void {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
+  if (className) {
+    button.className = className;
+  }
   button.addEventListener("click", onClick);
   container.appendChild(button);
 }
@@ -139,10 +147,15 @@ async function runBriefingSequence(
     BRIEFING_LINES.map((line) => `> ${line}`),
   );
 
-  actionButton(container, "CONFIRM", () => {
-    container.classList.remove("term-wide");
-    nav.next();
-  });
+  actionButton(
+    container,
+    "CONFIRM",
+    () => {
+      container.classList.remove("term-wide");
+      nav.next();
+    },
+    SYSTEM_ACTION_PRIMARY,
+  );
 }
 
 function renderBriefing(container: HTMLElement, nav: NavActions): void {
@@ -164,8 +177,404 @@ function renderTaskPlaceholder(n: number): Render {
   return (container, nav) => {
     heading(container, `Task ${n}`);
     paragraph(container, `Task ${n} Placeholder.`);
-    actionButton(container, "Continue", nav.next);
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
   };
+}
+
+const TASK1_HEADING = "SKY CONFIGURATION";
+const TASK1_INSTRUCTION = "Set the colour of the sky.";
+
+const TASK1_WIDTH = 640;
+const TASK1_HEIGHT = 360;
+
+const TASK1_PALETTE = [
+  "#6F8FA8",
+  "#748992",
+  "#7E9E99",
+  "#817F99",
+  "#A7B0B4",
+  "#283743",
+  "#718B7B",
+  "#11171C",
+];
+
+type Task1Tool = "small-brush" | "large-brush" | "eraser" | "fill";
+
+type RgbaColor = [number, number, number, number];
+
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function buildSkyMask(img: HTMLImageElement): Uint8Array {
+  const offscreen = document.createElement("canvas");
+  offscreen.width = TASK1_WIDTH;
+  offscreen.height = TASK1_HEIGHT;
+  const ctx = offscreen.getContext("2d")!;
+  ctx.drawImage(img, 0, 0, TASK1_WIDTH, TASK1_HEIGHT);
+  const data = ctx.getImageData(0, 0, TASK1_WIDTH, TASK1_HEIGHT).data;
+
+  const mask = new Uint8Array(TASK1_WIDTH * TASK1_HEIGHT);
+  for (let i = 0; i < mask.length; i += 1) {
+    mask[i] = data[i * 4 + 3] === 0 ? 1 : 0;
+  }
+  return mask;
+}
+
+function hexToRgba(hex: string): RgbaColor {
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), 255];
+}
+
+function readPixel(data: Uint8ClampedArray, index: number): RgbaColor {
+  const o = index * 4;
+  return [data[o], data[o + 1], data[o + 2], data[o + 3]];
+}
+
+function writePixel(data: Uint8ClampedArray, index: number, color: RgbaColor): void {
+  const o = index * 4;
+  data[o] = color[0];
+  data[o + 1] = color[1];
+  data[o + 2] = color[2];
+  data[o + 3] = color[3];
+}
+
+function colorsEqual(a: RgbaColor, b: RgbaColor): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
+function buildTask1Interface(
+  img: HTMLImageElement,
+  mask: Uint8Array,
+): { frame: HTMLElement; palette: HTMLElement; tools: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "task1-canvas-frame";
+
+  const baseCanvas = document.createElement("canvas");
+  baseCanvas.width = TASK1_WIDTH;
+  baseCanvas.height = TASK1_HEIGHT;
+  baseCanvas.className = "task1-base-canvas";
+  baseCanvas.setAttribute("aria-hidden", "true");
+  const baseCtx = baseCanvas.getContext("2d")!;
+  baseCtx.drawImage(img, 0, 0, TASK1_WIDTH, TASK1_HEIGHT);
+
+  const paintCanvas = document.createElement("canvas");
+  paintCanvas.width = TASK1_WIDTH;
+  paintCanvas.height = TASK1_HEIGHT;
+  paintCanvas.className = "task1-paint-canvas";
+  paintCanvas.setAttribute("role", "img");
+  paintCanvas.setAttribute("aria-label", "Editable pixel-art sky. Drawing is limited to the transparent sky area.");
+  const paintCtx = paintCanvas.getContext("2d")!;
+
+  frame.append(paintCanvas, baseCanvas);
+
+  let selectedTool: Task1Tool = "small-brush";
+  let selectedColor = TASK1_PALETTE[0];
+  let drawing = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  function toNativeCoords(event: PointerEvent): { x: number; y: number } {
+    const rect = paintCanvas.getBoundingClientRect();
+    return {
+      x: Math.floor(((event.clientX - rect.left) / rect.width) * TASK1_WIDTH),
+      y: Math.floor(((event.clientY - rect.top) / rect.height) * TASK1_HEIGHT),
+    };
+  }
+
+  function stampAt(x: number, y: number, size: number, erase: boolean): void {
+    const half = Math.floor(size / 2);
+    for (let dy = -half; dy < size - half; dy += 1) {
+      const py = y + dy;
+      if (py < 0 || py >= TASK1_HEIGHT) {
+        continue;
+      }
+      for (let dx = -half; dx < size - half; dx += 1) {
+        const px = x + dx;
+        if (px < 0 || px >= TASK1_WIDTH) {
+          continue;
+        }
+        if (mask[py * TASK1_WIDTH + px] !== 1) {
+          continue;
+        }
+        if (erase) {
+          paintCtx.clearRect(px, py, 1, 1);
+        } else {
+          paintCtx.fillStyle = selectedColor;
+          paintCtx.fillRect(px, py, 1, 1);
+        }
+      }
+    }
+  }
+
+  function strokeTo(x: number, y: number): void {
+    const size = selectedTool === "large-brush" ? 6 : 2;
+    const erase = selectedTool === "eraser";
+    const steps = Math.max(Math.abs(x - lastX), Math.abs(y - lastY), 1);
+    for (let s = 0; s <= steps; s += 1) {
+      const ix = Math.round(lastX + ((x - lastX) * s) / steps);
+      const iy = Math.round(lastY + ((y - lastY) * s) / steps);
+      stampAt(ix, iy, size, erase);
+    }
+    lastX = x;
+    lastY = y;
+  }
+
+  function floodFill(x: number, y: number): void {
+    const startIndex = y * TASK1_WIDTH + x;
+    if (mask[startIndex] !== 1) {
+      return;
+    }
+
+    const imageData = paintCtx.getImageData(0, 0, TASK1_WIDTH, TASK1_HEIGHT);
+    const data = imageData.data;
+    const targetColor = readPixel(data, startIndex);
+    const fillColor = hexToRgba(selectedColor);
+    if (colorsEqual(targetColor, fillColor)) {
+      return;
+    }
+
+    const visited = new Uint8Array(TASK1_WIDTH * TASK1_HEIGHT);
+    const stack: number[] = [startIndex];
+    visited[startIndex] = 1;
+
+    while (stack.length > 0) {
+      const index = stack.pop()!;
+      if (mask[index] !== 1 || !colorsEqual(readPixel(data, index), targetColor)) {
+        continue;
+      }
+      writePixel(data, index, fillColor);
+
+      const px = index % TASK1_WIDTH;
+      const py = Math.floor(index / TASK1_WIDTH);
+      const neighbors = [
+        px > 0 ? index - 1 : -1,
+        px < TASK1_WIDTH - 1 ? index + 1 : -1,
+        py > 0 ? index - TASK1_WIDTH : -1,
+        py < TASK1_HEIGHT - 1 ? index + TASK1_WIDTH : -1,
+      ];
+      for (const neighbor of neighbors) {
+        if (neighbor >= 0 && !visited[neighbor]) {
+          visited[neighbor] = 1;
+          stack.push(neighbor);
+        }
+      }
+    }
+
+    paintCtx.putImageData(imageData, 0, 0);
+  }
+
+  paintCanvas.addEventListener("pointerdown", (event) => {
+    const { x, y } = toNativeCoords(event);
+    if (x < 0 || x >= TASK1_WIDTH || y < 0 || y >= TASK1_HEIGHT) {
+      return;
+    }
+    event.preventDefault();
+    if (selectedTool === "fill") {
+      floodFill(x, y);
+      return;
+    }
+    paintCanvas.setPointerCapture(event.pointerId);
+    drawing = true;
+    lastX = x;
+    lastY = y;
+    strokeTo(x, y);
+  });
+
+  paintCanvas.addEventListener("pointermove", (event) => {
+    if (!drawing) {
+      return;
+    }
+    event.preventDefault();
+    const { x, y } = toNativeCoords(event);
+    strokeTo(x, y);
+  });
+
+  function stopDrawing(event: PointerEvent): void {
+    if (!drawing) {
+      return;
+    }
+    drawing = false;
+    if (paintCanvas.hasPointerCapture(event.pointerId)) {
+      paintCanvas.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  paintCanvas.addEventListener("pointerup", stopDrawing);
+  paintCanvas.addEventListener("pointercancel", stopDrawing);
+
+  const palette = document.createElement("div");
+  palette.className = "task1-palette";
+  const swatchButtons: HTMLButtonElement[] = [];
+
+  function selectColor(color: string): void {
+    selectedColor = color;
+    for (const swatch of swatchButtons) {
+      swatch.setAttribute("aria-pressed", String(swatch.dataset.color === color));
+    }
+  }
+
+  for (const color of TASK1_PALETTE) {
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "task1-swatch";
+    swatch.style.backgroundColor = color;
+    swatch.dataset.color = color;
+    swatch.setAttribute("aria-label", `Colour ${color}`);
+    swatch.setAttribute("aria-pressed", String(color === selectedColor));
+    swatch.addEventListener("click", () => selectColor(color));
+    swatchButtons.push(swatch);
+    palette.appendChild(swatch);
+  }
+
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.className = "task1-color-input";
+  colorInput.value = selectedColor;
+  colorInput.setAttribute("aria-label", "Custom colour");
+  colorInput.addEventListener("input", () => selectColor(colorInput.value));
+  palette.appendChild(colorInput);
+
+  const tools = document.createElement("div");
+  tools.className = "task1-tools";
+  const toolButtons: HTMLButtonElement[] = [];
+
+  const TOOL_DEFS: { tool: Task1Tool; label: string }[] = [
+    { tool: "small-brush", label: "SMALL BRUSH" },
+    { tool: "large-brush", label: "LARGE BRUSH" },
+    { tool: "eraser", label: "ERASER" },
+    { tool: "fill", label: "FILL" },
+  ];
+
+  function selectTool(tool: Task1Tool): void {
+    selectedTool = tool;
+    for (const button of toolButtons) {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.tool === tool),
+      );
+    }
+  }
+
+  for (const def of TOOL_DEFS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = def.label;
+    button.dataset.tool = def.tool;
+    button.setAttribute("aria-label", def.label);
+    button.setAttribute("aria-pressed", String(def.tool === selectedTool));
+    button.addEventListener("click", () => selectTool(def.tool));
+    toolButtons.push(button);
+    tools.appendChild(button);
+  }
+
+  return { frame, palette, tools };
+}
+
+function renderTask1(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runTask1Sequence(h1, terminal, container, nav);
+}
+
+async function runTask1Sequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, TASK1_HEADING);
+  await sleep(300);
+  await typeLine(terminal, TASK1_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const img = await loadImage(skyImageUrl);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (img === null) {
+    await typeLine(terminal, "Sky asset unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const mask = buildSkyMask(img);
+  const { frame, palette, tools } = buildTask1Interface(img, mask);
+
+  const workspace = document.createElement("div");
+  workspace.className = "task1-workspace";
+  container.appendChild(workspace);
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "task1-controls";
+  workspace.appendChild(controls);
+
+  palette.classList.add("task1-reveal-in");
+  controls.appendChild(palette);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  tools.classList.add("task1-reveal-in");
+  controls.appendChild(tools);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
 }
 
 const CHOICE_LINES = [
@@ -185,14 +594,24 @@ async function runChoiceSequence(
   await sleep(0);
   await runTypedTerminalSequence(h1, "REALITY CONFIRMATION", terminal, CHOICE_LINES);
 
-  actionButton(container, "CONFIRM REALITY", () => {
-    container.classList.remove("term-wide");
-    nav.next();
-  });
-  actionButton(container, "RECHECK ENVIRONMENT", () => {
-    container.classList.remove("term-wide");
-    nav.recheck();
-  });
+  actionButton(
+    container,
+    "CONFIRM REALITY",
+    () => {
+      container.classList.remove("term-wide");
+      nav.next();
+    },
+    SYSTEM_ACTION_PRIMARY,
+  );
+  actionButton(
+    container,
+    "RECHECK ENVIRONMENT",
+    () => {
+      container.classList.remove("term-wide");
+      nav.recheck();
+    },
+    SYSTEM_ACTION_SECONDARY,
+  );
 }
 
 function renderChoice(container: HTMLElement, nav: NavActions): void {
@@ -478,7 +897,8 @@ const FIRST_TASK_INDEX = 2;
 const SEQUENCE: Render[] = [
   renderWelcome,
   renderBriefing,
-  ...Array.from({ length: 20 }, (_, i) => renderTaskPlaceholder(i + 1)),
+  renderTask1,
+  ...Array.from({ length: 19 }, (_, i) => renderTaskPlaceholder(i + 2)),
   renderChoice,
   renderReflection,
 ];
@@ -489,6 +909,7 @@ const container = document.querySelector<HTMLElement>("#screen")!;
 function show(index: number): void {
   currentIndex = index;
   container.replaceChildren();
+  container.classList.remove("term-wide");
   SEQUENCE[currentIndex](container, {
     next: () => show(currentIndex + 1),
     restart: () => show(0),
