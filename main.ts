@@ -33,6 +33,8 @@ import shadowBackgroundUrl from "./assets/task04-person-cat-tree-background-v2.p
 import shadowPersonUrl from "./assets/task04-person-shadow.png";
 import shadowCatUrl from "./assets/task04-cat-shadow.png";
 import shadowTreeUrl from "./assets/task04-tree-shadow.png";
+import flowerBackgroundUrl from "./assets/task09-flower-placement-background.png";
+import flowerSpriteUrl from "./assets/task09-flower.png";
 
 interface NavActions {
   next: () => void;
@@ -3639,6 +3641,342 @@ async function runShadowTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const FLOWER_HEADING = "FLOWER PLACEMENT";
+const FLOWER_INSTRUCTION = "Set where flowers grow.";
+
+const FLOWER_SCENE_WIDTH = 640;
+const FLOWER_SCENE_HEIGHT = 360;
+const FLOWER_PLACED_WIDTH_PERCENT = 4;
+const FLOWER_SOURCE_THUMBNAIL_HEIGHT_REM = 2.6;
+
+interface PlacedFlower {
+  id: number;
+  x: number;
+  y: number;
+}
+
+interface FlowerTaskState {
+  flowers: PlacedFlower[];
+}
+
+interface FlowerDragTracker {
+  current: (() => void) | null;
+}
+
+function flowerToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * FLOWER_SCENE_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * FLOWER_SCENE_HEIGHT,
+  };
+}
+
+function flowerIsInsideRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function watchFlowerDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+interface FlowerInstance {
+  flower: PlacedFlower;
+  el: HTMLImageElement;
+  width: number;
+  height: number;
+}
+
+function buildFlowerInterface(
+  background: HTMLImageElement,
+  sprite: HTMLImageElement,
+  dragTracker: FlowerDragTracker,
+  initial: PlacedFlower[] | null,
+  onChange: (flowers: PlacedFlower[]) => void,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "flower-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "flower-background";
+  frame.appendChild(backgroundImg);
+
+  const scene = document.createElement("div");
+  scene.className = "flower-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Flower placement area. Drag flowers into this area.");
+  frame.appendChild(scene);
+
+  const instances: FlowerInstance[] = [];
+  let nextId = 1;
+
+  function persist(): void {
+    onChange(instances.map((inst) => ({ ...inst.flower })));
+  }
+
+  function applyPosition(inst: FlowerInstance): void {
+    inst.el.style.left = `${(inst.flower.x / FLOWER_SCENE_WIDTH) * 100}%`;
+    inst.el.style.top = `${(inst.flower.y / FLOWER_SCENE_HEIGHT) * 100}%`;
+  }
+
+  function wireReposition(inst: FlowerInstance): void {
+    inst.el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      inst.el.setPointerCapture(event.pointerId);
+      const startX = inst.flower.x;
+      const startY = inst.flower.y;
+      const pointerId = event.pointerId;
+
+      function onMove(moveEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        const { x, y } = flowerToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+        inst.flower.x = x;
+        inst.flower.y = y;
+        applyPosition(inst);
+      }
+
+      function finish(cancelled: boolean): void {
+        inst.el.removeEventListener("pointermove", onMove);
+        inst.el.removeEventListener("pointerup", onUp);
+        inst.el.removeEventListener("pointercancel", onCancel);
+        if (inst.el.hasPointerCapture(pointerId)) {
+          inst.el.releasePointerCapture(pointerId);
+        }
+        dragTracker.current = null;
+        if (cancelled) {
+          inst.flower.x = startX;
+          inst.flower.y = startY;
+        } else {
+          inst.flower.x = clampRange(inst.flower.x, inst.width / 2, FLOWER_SCENE_WIDTH - inst.width / 2);
+          inst.flower.y = clampRange(inst.flower.y, inst.height / 2, FLOWER_SCENE_HEIGHT - inst.height / 2);
+        }
+        applyPosition(inst);
+        persist();
+      }
+
+      function onUp(): void {
+        finish(false);
+      }
+
+      function onCancel(): void {
+        finish(true);
+      }
+
+      dragTracker.current = onCancel;
+      inst.el.addEventListener("pointermove", onMove);
+      inst.el.addEventListener("pointerup", onUp);
+      inst.el.addEventListener("pointercancel", onCancel);
+    });
+  }
+
+  function instantiateFromState(flower: PlacedFlower): void {
+    const width = (FLOWER_PLACED_WIDTH_PERCENT / 100) * FLOWER_SCENE_WIDTH;
+    const height = width * (sprite.naturalHeight / sprite.naturalWidth);
+    flower.x = clampRange(flower.x, width / 2, FLOWER_SCENE_WIDTH - width / 2);
+    flower.y = clampRange(flower.y, height / 2, FLOWER_SCENE_HEIGHT - height / 2);
+
+    const el = document.createElement("img");
+    el.src = sprite.src;
+    el.alt = "";
+    el.setAttribute("aria-hidden", "true");
+    el.className = "flower-placed";
+    el.setAttribute("aria-label", "Placed flower. Drag to reposition.");
+    el.style.width = `${FLOWER_PLACED_WIDTH_PERCENT}%`;
+
+    const inst: FlowerInstance = { flower, el, width, height };
+    instances.push(inst);
+
+    scene.appendChild(el);
+    applyPosition(inst);
+    wireReposition(inst);
+  }
+
+  function placeFromSource(x: number, y: number): void {
+    const flower: PlacedFlower = { id: nextId, x, y };
+    nextId += 1;
+    instantiateFromState(flower);
+    persist();
+  }
+
+  if (initial) {
+    for (const flower of initial) {
+      nextId = Math.max(nextId, flower.id + 1);
+      instantiateFromState({ ...flower });
+    }
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "flower-controls";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "flower-source";
+  button.setAttribute("aria-label", "Flower source. Drag into the scene.");
+
+  const imageWrap = document.createElement("div");
+  imageWrap.className = "flower-source-image-wrap";
+  button.appendChild(imageWrap);
+
+  const image = document.createElement("img");
+  image.src = sprite.src;
+  image.alt = "";
+  image.setAttribute("aria-hidden", "true");
+  image.className = "flower-source-image";
+  image.style.height = `${FLOWER_SOURCE_THUMBNAIL_HEIGHT_REM}rem`;
+  imageWrap.appendChild(image);
+
+  const label = document.createElement("span");
+  label.className = "flower-source-label";
+  label.textContent = "FLOWER";
+  button.appendChild(label);
+
+  button.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    button.setPointerCapture(event.pointerId);
+    button.classList.add("flower-source-active");
+    const pointerId = event.pointerId;
+
+    const ghost = document.createElement("img");
+    ghost.src = sprite.src;
+    ghost.alt = "";
+    ghost.className = "flower-drag-ghost";
+    const startRect = scene.getBoundingClientRect();
+    ghost.style.width = `${(FLOWER_PLACED_WIDTH_PERCENT / 100) * startRect.width}px`;
+    ghost.style.left = `${event.clientX}px`;
+    ghost.style.top = `${event.clientY}px`;
+    document.body.appendChild(ghost);
+
+    function onMove(moveEvent: PointerEvent): void {
+      ghost.style.left = `${moveEvent.clientX}px`;
+      ghost.style.top = `${moveEvent.clientY}px`;
+    }
+
+    function cleanup(): void {
+      if (button.hasPointerCapture(pointerId)) {
+        button.releasePointerCapture(pointerId);
+      }
+      button.removeEventListener("pointermove", onMove);
+      button.removeEventListener("pointerup", onUp);
+      button.removeEventListener("pointercancel", onCancel);
+      button.classList.remove("flower-source-active");
+      dragTracker.current = null;
+      ghost.remove();
+    }
+
+    function onUp(upEvent: PointerEvent): void {
+      const rect = scene.getBoundingClientRect();
+      if (flowerIsInsideRect(upEvent.clientX, upEvent.clientY, rect)) {
+        const { x, y } = flowerToNativeCoords(upEvent.clientX, upEvent.clientY, rect);
+        placeFromSource(x, y);
+      }
+      cleanup();
+    }
+
+    function onCancel(): void {
+      cleanup();
+    }
+
+    dragTracker.current = onCancel;
+    button.addEventListener("pointermove", onMove);
+    button.addEventListener("pointerup", onUp);
+    button.addEventListener("pointercancel", onCancel);
+  });
+
+  controls.appendChild(button);
+
+  return { frame, controls };
+}
+
+function renderFlowerTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runFlowerTaskSequence(h1, terminal, container, nav);
+}
+
+async function runFlowerTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, FLOWER_HEADING, FLOWER_INSTRUCTION, nav.alreadyVisited);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, flowerSprite] = await Promise.all([
+    loadImage(flowerBackgroundUrl),
+    loadImage(flowerSpriteUrl),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null || flowerSprite === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: FlowerDragTracker = { current: null };
+  const { frame, controls } = buildFlowerInterface(
+    background,
+    flowerSprite,
+    dragTracker,
+    taskSession.flower?.flowers ?? null,
+    (flowers) => {
+      taskSession.flower = { flowers };
+    },
+  );
+
+  const workspace = document.createElement("div");
+  workspace.className = "flower-workspace";
+  container.appendChild(workspace);
+
+  watchFlowerDetachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -3648,6 +3986,7 @@ const TASK4_INDEX = 6;
 const TASK5_INDEX = 7;
 const TASK3_INDEX = 8;
 const TASK2_INDEX = 9;
+const FLOWER_INDEX = 10;
 const TASK1_INDEX = 13;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
@@ -3656,6 +3995,7 @@ interface TaskSession {
   sleeve: SleeveState | null;
   face: FaceTaskState | null;
   shadow: ShadowTaskState | null;
+  flower: FlowerTaskState | null;
   task1: Task1SkyState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
@@ -3668,6 +4008,7 @@ const taskSession: TaskSession = {
   sleeve: null,
   face: null,
   shadow: null,
+  flower: null,
   task1: null,
   task2: null,
   task3: null,
@@ -3690,6 +4031,9 @@ function resetTaskState(index: number): void {
       break;
     case SHADOW_INDEX:
       taskSession.shadow = null;
+      break;
+    case FLOWER_INDEX:
+      taskSession.flower = null;
       break;
     case TASK4_INDEX:
       taskSession.task4 = null;
@@ -3716,6 +4060,7 @@ function restartExperience(): void {
   taskSession.sleeve = null;
   taskSession.face = null;
   taskSession.shadow = null;
+  taskSession.flower = null;
   taskSession.task1 = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
@@ -3736,7 +4081,7 @@ const SEQUENCE: Render[] = [
   renderTask5,
   renderTask3,
   renderTask2,
-  renderTaskPlaceholder(9),
+  renderFlowerTask,
   renderTaskPlaceholder(10),
   renderTaskPlaceholder(11),
   renderTask1,

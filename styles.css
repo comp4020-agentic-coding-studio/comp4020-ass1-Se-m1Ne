@@ -818,6 +818,133 @@ h1:focus-visible {
   }
 }
 
+.flower-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.5rem;
+  max-width: calc(860px + 1.5rem + 9rem);
+  margin-top: -0.5rem;
+}
+
+.flower-frame {
+  position: relative;
+  width: min(100%, 860px, calc((100vh - 18rem) * 640 / 360));
+  aspect-ratio: 640 / 360;
+  border: 1px solid #56626d;
+  overflow: hidden;
+}
+
+.flower-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.flower-scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.flower-placed {
+  position: absolute;
+  height: auto;
+  padding: 0.55rem;
+  box-sizing: content-box;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+  cursor: grab;
+}
+
+.flower-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+  align-self: start;
+  max-width: 9rem;
+}
+
+.flower-source {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.55rem;
+  touch-action: none;
+}
+
+.flower-source-image-wrap {
+  height: 2.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flower-source-image {
+  width: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.flower-source-label {
+  font-size: 0.75rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.flower-source-active {
+  border-color: #7e9e99;
+  background: #1b2127;
+}
+
+.flower-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1000;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+@media (width <= 768px) {
+  .flower-workspace {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
+  .flower-controls {
+    max-width: 10rem;
+    margin: 0 auto;
+  }
+
+  .flower-source {
+    gap: 0.3rem;
+    padding: 0.45rem 0.4rem;
+  }
+
+  .flower-source-image-wrap {
+    height: 1.85rem;
+  }
+
+  .flower-source-image {
+    max-height: 1.5rem;
+  }
+
+  .flower-source-label {
+    font-size: 0.6rem;
+  }
+}
+
 .task4-workspace {
   display: flex;
   flex-wrap: wrap;
