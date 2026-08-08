@@ -6,6 +6,11 @@ import task2SunUrl from "./assets/task02-sun.png";
 import task3BackgroundUrl from "./assets/task03-rainfall-background-v1.png";
 import task3StormCloudUrl from "./assets/task03-storm-cloud.png";
 import task3WhiteCloudUrl from "./assets/task03-white-cloud.png";
+import task5BackgroundUrl from "./assets/task05-season-slots-background.png";
+import task5SpringUrl from "./assets/task05-spring.png";
+import task5SummerUrl from "./assets/task05-summer.png";
+import task5AutumnUrl from "./assets/task05-autumn.png";
+import task5WinterUrl from "./assets/task05-winter.png";
 
 interface NavActions {
   next: () => void;
@@ -1511,6 +1516,339 @@ async function runTask4Sequence(
   container.appendChild(nextButton);
 }
 
+const TASK5_HEADING = "SEASON CONFIGURATION";
+const TASK5_INSTRUCTION = "Set the seasonal sequence.";
+
+type Task5SeasonType = "spring" | "summer" | "autumn" | "winter";
+
+const TASK5_SOURCE_DEFS: { type: Task5SeasonType; label: string }[] = [
+  { type: "spring", label: "SPRING" },
+  { type: "summer", label: "SUMMER" },
+  { type: "autumn", label: "AUTUMN" },
+  { type: "winter", label: "WINTER" },
+];
+
+const TASK5_SLOT_COUNT = 4;
+const TASK5_SLOT_LEFT_PERCENTS = [2.5, 27.5, 52.5, 77.5];
+const TASK5_SLOT_WIDTH_PERCENT = 20;
+const TASK5_SLOT_TOP_PERCENT = 25;
+const TASK5_SLOT_HEIGHT_PERCENT = 45;
+
+interface Task5DragTracker {
+  current: (() => void) | null;
+}
+
+function task5IsInsideRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function watchTask5Detachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function buildTask5Interface(
+  background: HTMLImageElement,
+  sprites: Record<Task5SeasonType, HTMLImageElement>,
+  dragTracker: Task5DragTracker,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "task5-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "task5-background";
+  frame.appendChild(backgroundImg);
+
+  const slotsLayer = document.createElement("div");
+  slotsLayer.className = "task5-slots";
+  slotsLayer.setAttribute("role", "group");
+  slotsLayer.setAttribute("aria-label", "Season configuration area. Drag seasons into the four slots.");
+  frame.appendChild(slotsLayer);
+
+  const slots: (Task5SeasonType | null)[] = Array.from({ length: TASK5_SLOT_COUNT }, () => null);
+  const slotElements: HTMLElement[] = [];
+
+  for (let i = 0; i < TASK5_SLOT_COUNT; i += 1) {
+    const slotEl = document.createElement("div");
+    slotEl.className = "task5-slot";
+    slotEl.style.left = `${TASK5_SLOT_LEFT_PERCENTS[i]}%`;
+    slotEl.style.top = `${TASK5_SLOT_TOP_PERCENT}%`;
+    slotEl.style.width = `${TASK5_SLOT_WIDTH_PERCENT}%`;
+    slotEl.style.height = `${TASK5_SLOT_HEIGHT_PERCENT}%`;
+    slotEl.setAttribute("role", "group");
+    slotsLayer.appendChild(slotEl);
+    slotElements.push(slotEl);
+  }
+
+  function slotLabel(index: number): string {
+    const value = slots[index];
+    const seasonLabel = TASK5_SOURCE_DEFS.find((def) => def.type === value)?.label;
+    return `Slot ${index + 1}: ${seasonLabel ?? "empty"}.`;
+  }
+
+  function renderSlot(index: number): void {
+    const slotEl = slotElements[index];
+    slotEl.replaceChildren();
+    slotEl.setAttribute("aria-label", slotLabel(index));
+
+    const value = slots[index];
+    if (value === null) {
+      return;
+    }
+
+    const def = TASK5_SOURCE_DEFS.find((d) => d.type === value)!;
+    const sprite = sprites[value];
+
+    const placed = document.createElement("button");
+    placed.type = "button";
+    placed.className = "task5-placed";
+    placed.setAttribute("aria-label", `${def.label} placed in slot ${index + 1}. Drag to move to another slot.`);
+
+    const image = document.createElement("img");
+    image.src = sprite.src;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.className = "task5-placed-image";
+    placed.appendChild(image);
+
+    wirePlacedDrag(placed, index);
+    slotEl.appendChild(placed);
+  }
+
+  function assignSlot(index: number, value: Task5SeasonType): void {
+    slots[index] = value;
+    renderSlot(index);
+  }
+
+  function findSlotAt(clientX: number, clientY: number): number {
+    for (let i = 0; i < slotElements.length; i += 1) {
+      if (task5IsInsideRect(clientX, clientY, slotElements[i].getBoundingClientRect())) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function startDrag(
+    seasonType: Task5SeasonType,
+    sprite: HTMLImageElement,
+    originButton: HTMLElement,
+    pointerId: number,
+    startClientX: number,
+    startClientY: number,
+    originIndex: number | null,
+  ): void {
+    originButton.setPointerCapture(pointerId);
+    originButton.classList.add("task5-drag-origin");
+
+    const ghost = document.createElement("img");
+    ghost.src = sprite.src;
+    ghost.alt = "";
+    ghost.className = "task5-drag-ghost";
+    const frameRect = frame.getBoundingClientRect();
+    ghost.style.width = `${(TASK5_SLOT_WIDTH_PERCENT / 100) * frameRect.width * 0.7}px`;
+    ghost.style.left = `${startClientX}px`;
+    ghost.style.top = `${startClientY}px`;
+    document.body.appendChild(ghost);
+
+    function onMove(moveEvent: PointerEvent): void {
+      ghost.style.left = `${moveEvent.clientX}px`;
+      ghost.style.top = `${moveEvent.clientY}px`;
+    }
+
+    function cleanup(): void {
+      if (originButton.hasPointerCapture(pointerId)) {
+        originButton.releasePointerCapture(pointerId);
+      }
+      originButton.removeEventListener("pointermove", onMove);
+      originButton.removeEventListener("pointerup", onUp);
+      originButton.removeEventListener("pointercancel", onCancel);
+      originButton.classList.remove("task5-drag-origin");
+      dragTracker.current = null;
+      ghost.remove();
+    }
+
+    function onUp(upEvent: PointerEvent): void {
+      const targetIndex = findSlotAt(upEvent.clientX, upEvent.clientY);
+      cleanup();
+      if (targetIndex === -1) {
+        return;
+      }
+      assignSlot(targetIndex, seasonType);
+      if (originIndex !== null && originIndex !== targetIndex) {
+        slots[originIndex] = null;
+        renderSlot(originIndex);
+      }
+    }
+
+    function onCancel(): void {
+      cleanup();
+    }
+
+    dragTracker.current = onCancel;
+    originButton.addEventListener("pointermove", onMove);
+    originButton.addEventListener("pointerup", onUp);
+    originButton.addEventListener("pointercancel", onCancel);
+  }
+
+  function wirePlacedDrag(placed: HTMLElement, index: number): void {
+    placed.addEventListener("pointerdown", (event) => {
+      const value = slots[index];
+      if (value === null) {
+        return;
+      }
+      event.preventDefault();
+      startDrag(value, sprites[value], placed, event.pointerId, event.clientX, event.clientY, index);
+    });
+  }
+
+  for (let i = 0; i < TASK5_SLOT_COUNT; i += 1) {
+    renderSlot(i);
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "task5-controls";
+
+  for (const def of TASK5_SOURCE_DEFS) {
+    const sprite = sprites[def.type];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "task5-source";
+    button.setAttribute("aria-label", `${def.label} source. Drag into a slot to place it.`);
+
+    const image = document.createElement("img");
+    image.src = sprite.src;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.className = "task5-source-image";
+    button.appendChild(image);
+
+    const label = document.createElement("span");
+    label.className = "task5-source-label";
+    label.textContent = def.label;
+    button.appendChild(label);
+
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      startDrag(def.type, sprite, button, event.pointerId, event.clientX, event.clientY, null);
+    });
+
+    controls.appendChild(button);
+  }
+
+  return { frame, controls };
+}
+
+function renderTask5(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runTask5Sequence(h1, terminal, container, nav);
+}
+
+async function runTask5Sequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, TASK5_HEADING);
+  await sleep(300);
+  await typeLine(terminal, TASK5_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, spring, summer, autumn, winter] = await Promise.all([
+    loadImage(task5BackgroundUrl),
+    loadImage(task5SpringUrl),
+    loadImage(task5SummerUrl),
+    loadImage(task5AutumnUrl),
+    loadImage(task5WinterUrl),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null || spring === null || summer === null || autumn === null || winter === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: Task5DragTracker = { current: null };
+  const { frame, controls } = buildTask5Interface(background, { spring, summer, autumn, winter }, dragTracker);
+
+  const workspace = document.createElement("div");
+  workspace.className = "task5-workspace";
+  container.appendChild(workspace);
+
+  watchTask5Detachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
+}
+
 const CHOICE_LINES = [
   "> The environment has been aligned.",
   "",
@@ -1835,7 +2173,8 @@ const SEQUENCE: Render[] = [
   renderTask2,
   renderTask3,
   renderTask4,
-  ...Array.from({ length: 16 }, (_, i) => renderTaskPlaceholder(i + 5)),
+  renderTask5,
+  ...Array.from({ length: 15 }, (_, i) => renderTaskPlaceholder(i + 6)),
   renderChoice,
   renderReflection,
 ];
