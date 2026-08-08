@@ -29,6 +29,10 @@ import faceLeftEyebrowUrl from "./assets/task03-face-left-eyebrow.png";
 import faceRightEyebrowUrl from "./assets/task03-face-right-eyebrow.png";
 import faceNoseUrl from "./assets/task03-face-nose.png";
 import faceMouthUrl from "./assets/task03-face-mouth.png";
+import shadowBackgroundUrl from "./assets/task04-person-cat-tree-background-v2.png";
+import shadowPersonUrl from "./assets/task04-person-shadow.png";
+import shadowCatUrl from "./assets/task04-cat-shadow.png";
+import shadowTreeUrl from "./assets/task04-tree-shadow.png";
 
 interface NavActions {
   next: () => void;
@@ -3272,10 +3276,374 @@ async function runFaceTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const SHADOW_HEADING = "SHADOW CONFIGURATION";
+const SHADOW_INSTRUCTION = "Set the shadows.";
+
+const SHADOW_SCENE_WIDTH = 640;
+const SHADOW_SCENE_HEIGHT = 420;
+const SHADOW_THUMBNAIL_BASE_HEIGHT_REM = 2.4;
+
+type ShadowType = "person" | "cat" | "tree";
+
+interface PlacedShadow {
+  id: number;
+  type: ShadowType;
+  x: number;
+  y: number;
+}
+
+interface ShadowTaskState {
+  placedShadows: PlacedShadow[];
+}
+
+const PERSON_SHADOW_WIDTH_PERCENT = 19.8;
+const CAT_SHADOW_WIDTH_PERCENT = 26.4;
+const TREE_SHADOW_WIDTH_PERCENT = 24;
+
+const SHADOW_DEFS: { type: ShadowType; label: string; widthPercent: number; thumbnailScale: number }[] = [
+  { type: "person", label: "PERSON SHADOW", widthPercent: PERSON_SHADOW_WIDTH_PERCENT, thumbnailScale: 1 },
+  { type: "cat", label: "CAT SHADOW", widthPercent: CAT_SHADOW_WIDTH_PERCENT, thumbnailScale: 1.15 },
+  { type: "tree", label: "TREE SHADOW", widthPercent: TREE_SHADOW_WIDTH_PERCENT, thumbnailScale: 0.62 },
+];
+
+const SHADOW_DEF_MAP: Record<ShadowType, (typeof SHADOW_DEFS)[number]> = Object.fromEntries(
+  SHADOW_DEFS.map((def) => [def.type, def]),
+) as Record<ShadowType, (typeof SHADOW_DEFS)[number]>;
+
+interface ShadowDragTracker {
+  current: (() => void) | null;
+}
+
+function shadowToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * SHADOW_SCENE_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * SHADOW_SCENE_HEIGHT,
+  };
+}
+
+function shadowIsInsideRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function watchShadowDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+interface ShadowInstance {
+  shadow: PlacedShadow;
+  el: HTMLImageElement;
+  width: number;
+  height: number;
+}
+
+function buildShadowInterface(
+  background: HTMLImageElement,
+  sprites: Record<ShadowType, HTMLImageElement>,
+  dragTracker: ShadowDragTracker,
+  initial: PlacedShadow[] | null,
+  onChange: (placedShadows: PlacedShadow[]) => void,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "shadow-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "shadow-background";
+  frame.appendChild(backgroundImg);
+
+  const scene = document.createElement("div");
+  scene.className = "shadow-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Shadow placement area. Drag shadows into this area.");
+  frame.appendChild(scene);
+
+  const instances: ShadowInstance[] = [];
+  let nextId = 1;
+
+  function persist(): void {
+    onChange(instances.map((inst) => ({ ...inst.shadow })));
+  }
+
+  function applyPosition(inst: ShadowInstance): void {
+    inst.el.style.left = `${(inst.shadow.x / SHADOW_SCENE_WIDTH) * 100}%`;
+    inst.el.style.top = `${(inst.shadow.y / SHADOW_SCENE_HEIGHT) * 100}%`;
+  }
+
+  function wireReposition(inst: ShadowInstance): void {
+    inst.el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      inst.el.setPointerCapture(event.pointerId);
+      const startX = inst.shadow.x;
+      const startY = inst.shadow.y;
+      const pointerId = event.pointerId;
+
+      function onMove(moveEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        const { x, y } = shadowToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+        inst.shadow.x = x;
+        inst.shadow.y = y;
+        applyPosition(inst);
+      }
+
+      function finish(cancelled: boolean): void {
+        inst.el.removeEventListener("pointermove", onMove);
+        inst.el.removeEventListener("pointerup", onUp);
+        inst.el.removeEventListener("pointercancel", onCancel);
+        if (inst.el.hasPointerCapture(pointerId)) {
+          inst.el.releasePointerCapture(pointerId);
+        }
+        dragTracker.current = null;
+        if (cancelled) {
+          inst.shadow.x = startX;
+          inst.shadow.y = startY;
+        } else {
+          inst.shadow.x = clampRange(inst.shadow.x, inst.width / 2, SHADOW_SCENE_WIDTH - inst.width / 2);
+          inst.shadow.y = clampRange(inst.shadow.y, inst.height / 2, SHADOW_SCENE_HEIGHT - inst.height / 2);
+        }
+        applyPosition(inst);
+        persist();
+      }
+
+      function onUp(): void {
+        finish(false);
+      }
+
+      function onCancel(): void {
+        finish(true);
+      }
+
+      dragTracker.current = onCancel;
+      inst.el.addEventListener("pointermove", onMove);
+      inst.el.addEventListener("pointerup", onUp);
+      inst.el.addEventListener("pointercancel", onCancel);
+    });
+  }
+
+  function instantiateFromState(shadow: PlacedShadow): void {
+    const sprite = sprites[shadow.type];
+    const def = SHADOW_DEF_MAP[shadow.type];
+    const width = (def.widthPercent / 100) * SHADOW_SCENE_WIDTH;
+    const height = width * (sprite.naturalHeight / sprite.naturalWidth);
+    shadow.x = clampRange(shadow.x, width / 2, SHADOW_SCENE_WIDTH - width / 2);
+    shadow.y = clampRange(shadow.y, height / 2, SHADOW_SCENE_HEIGHT - height / 2);
+
+    const el = document.createElement("img");
+    el.src = sprite.src;
+    el.alt = "";
+    el.setAttribute("aria-hidden", "true");
+    el.className = "shadow-placed";
+    el.setAttribute("aria-label", `Placed ${def.label.toLowerCase()}. Drag to reposition.`);
+    el.style.width = `${def.widthPercent}%`;
+
+    const inst: ShadowInstance = { shadow, el, width, height };
+    instances.push(inst);
+
+    scene.appendChild(el);
+    applyPosition(inst);
+    wireReposition(inst);
+  }
+
+  function placeFromSource(type: ShadowType, x: number, y: number): void {
+    const shadow: PlacedShadow = { id: nextId, type, x, y };
+    nextId += 1;
+    instantiateFromState(shadow);
+    persist();
+  }
+
+  if (initial) {
+    for (const shadow of initial) {
+      nextId = Math.max(nextId, shadow.id + 1);
+      instantiateFromState({ ...shadow });
+    }
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "shadow-controls";
+
+  for (const def of SHADOW_DEFS) {
+    const sprite = sprites[def.type];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "shadow-source";
+    button.setAttribute("aria-label", `${def.label.charAt(0)}${def.label.slice(1).toLowerCase()} source. Drag into the scene.`);
+
+    const imageWrap = document.createElement("div");
+    imageWrap.className = "shadow-source-image-wrap";
+    button.appendChild(imageWrap);
+
+    const image = document.createElement("img");
+    image.src = sprite.src;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.className = "shadow-source-image";
+    image.style.height = `${SHADOW_THUMBNAIL_BASE_HEIGHT_REM * def.thumbnailScale}rem`;
+    imageWrap.appendChild(image);
+
+    const label = document.createElement("span");
+    label.className = "shadow-source-label";
+    label.textContent = def.label;
+    button.appendChild(label);
+
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      button.classList.add("shadow-source-active");
+      const pointerId = event.pointerId;
+
+      const ghost = document.createElement("img");
+      ghost.src = sprite.src;
+      ghost.alt = "";
+      ghost.className = "shadow-drag-ghost";
+      const startRect = scene.getBoundingClientRect();
+      ghost.style.width = `${(def.widthPercent / 100) * startRect.width}px`;
+      ghost.style.left = `${event.clientX}px`;
+      ghost.style.top = `${event.clientY}px`;
+      document.body.appendChild(ghost);
+
+      function onMove(moveEvent: PointerEvent): void {
+        ghost.style.left = `${moveEvent.clientX}px`;
+        ghost.style.top = `${moveEvent.clientY}px`;
+      }
+
+      function cleanup(): void {
+        if (button.hasPointerCapture(pointerId)) {
+          button.releasePointerCapture(pointerId);
+        }
+        button.removeEventListener("pointermove", onMove);
+        button.removeEventListener("pointerup", onUp);
+        button.removeEventListener("pointercancel", onCancel);
+        button.classList.remove("shadow-source-active");
+        dragTracker.current = null;
+        ghost.remove();
+      }
+
+      function onUp(upEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        if (shadowIsInsideRect(upEvent.clientX, upEvent.clientY, rect)) {
+          const { x, y } = shadowToNativeCoords(upEvent.clientX, upEvent.clientY, rect);
+          placeFromSource(def.type, x, y);
+        }
+        cleanup();
+      }
+
+      function onCancel(): void {
+        cleanup();
+      }
+
+      dragTracker.current = onCancel;
+      button.addEventListener("pointermove", onMove);
+      button.addEventListener("pointerup", onUp);
+      button.addEventListener("pointercancel", onCancel);
+    });
+
+    controls.appendChild(button);
+  }
+
+  return { frame, controls };
+}
+
+function renderShadowTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runShadowTaskSequence(h1, terminal, container, nav);
+}
+
+async function runShadowTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, SHADOW_HEADING, SHADOW_INSTRUCTION, nav.alreadyVisited);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, personShadow, catShadow, treeShadow] = await Promise.all([
+    loadImage(shadowBackgroundUrl),
+    loadImage(shadowPersonUrl),
+    loadImage(shadowCatUrl),
+    loadImage(shadowTreeUrl),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null || personShadow === null || catShadow === null || treeShadow === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: ShadowDragTracker = { current: null };
+  const { frame, controls } = buildShadowInterface(
+    background,
+    {
+      person: personShadow,
+      cat: catShadow,
+      tree: treeShadow,
+    },
+    dragTracker,
+    taskSession.shadow?.placedShadows ?? null,
+    (placedShadows) => {
+      taskSession.shadow = { placedShadows };
+    },
+  );
+
+  const workspace = document.createElement("div");
+  workspace.className = "shadow-workspace";
+  container.appendChild(workspace);
+
+  watchShadowDetachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
 const FACE_INDEX = 4;
+const SHADOW_INDEX = 5;
 const TASK4_INDEX = 6;
 const TASK5_INDEX = 7;
 const TASK3_INDEX = 8;
@@ -3287,6 +3655,7 @@ interface TaskSession {
   habitat: HabitatState | null;
   sleeve: SleeveState | null;
   face: FaceTaskState | null;
+  shadow: ShadowTaskState | null;
   task1: Task1SkyState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
@@ -3298,6 +3667,7 @@ const taskSession: TaskSession = {
   habitat: null,
   sleeve: null,
   face: null,
+  shadow: null,
   task1: null,
   task2: null,
   task3: null,
@@ -3317,6 +3687,9 @@ function resetTaskState(index: number): void {
       break;
     case FACE_INDEX:
       taskSession.face = null;
+      break;
+    case SHADOW_INDEX:
+      taskSession.shadow = null;
       break;
     case TASK4_INDEX:
       taskSession.task4 = null;
@@ -3342,6 +3715,7 @@ function restartExperience(): void {
   taskSession.habitat = null;
   taskSession.sleeve = null;
   taskSession.face = null;
+  taskSession.shadow = null;
   taskSession.task1 = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
@@ -3357,7 +3731,7 @@ const SEQUENCE: Render[] = [
   renderHabitatTask,
   renderSleeveTask,
   renderFaceTask,
-  renderTaskPlaceholder(4),
+  renderShadowTask,
   renderTask4,
   renderTask5,
   renderTask3,

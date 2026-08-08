@@ -688,6 +688,136 @@ h1:focus-visible {
   }
 }
 
+.shadow-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.5rem;
+  max-width: calc(860px + 1.5rem + 12rem);
+  margin-top: -0.5rem;
+}
+
+.shadow-frame {
+  position: relative;
+  width: min(100%, 860px, calc((100vh - 18rem) * 640 / 420));
+  aspect-ratio: 640 / 420;
+  border: 1px solid #56626d;
+  overflow: hidden;
+}
+
+.shadow-background {
+  position: absolute;
+  left: 47.5%;
+  top: -7.71%;
+  width: 80%;
+  height: auto;
+  transform: translateX(-50%);
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.shadow-scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.shadow-placed {
+  position: absolute;
+  height: auto;
+  padding: 0.35rem;
+  box-sizing: content-box;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+  cursor: grab;
+}
+
+.shadow-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+  align-self: start;
+  max-width: 12rem;
+}
+
+.shadow-source {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.55rem;
+  touch-action: none;
+}
+
+.shadow-source-image-wrap {
+  height: 2.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shadow-source-image {
+  width: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.shadow-source-label {
+  font-size: 0.75rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.shadow-source-active {
+  border-color: #7e9e99;
+  background: #1b2127;
+}
+
+.shadow-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1000;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+@media (width <= 768px) {
+  .shadow-workspace {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
+  .shadow-controls {
+    max-width: none;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .shadow-source {
+    gap: 0.3rem;
+    padding: 0.45rem 0.4rem;
+  }
+
+  .shadow-source-image-wrap {
+    height: 1.85rem;
+  }
+
+  .shadow-source-image {
+    max-height: 1.5rem;
+  }
+
+  .shadow-source-label {
+    font-size: 0.6rem;
+  }
+}
+
 .task4-workspace {
   display: flex;
   flex-wrap: wrap;
