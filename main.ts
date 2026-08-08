@@ -22,6 +22,13 @@ import sleeveRight02Url from "./assets/task02-sleeve-right-02.png";
 import sleeveRight03Url from "./assets/task02-sleeve-right-03.png";
 import habitatBackgroundUrl from "./assets/fish-position-background.png";
 import habitatFishUrl from "./assets/fish-position-fish.png";
+import faceBackgroundUrl from "./assets/task03-face-blank-face.png";
+import faceLeftEyeUrl from "./assets/task03-face-left-eye.png";
+import faceRightEyeUrl from "./assets/task03-face-right-eye.png";
+import faceLeftEyebrowUrl from "./assets/task03-face-left-eyebrow.png";
+import faceRightEyebrowUrl from "./assets/task03-face-right-eyebrow.png";
+import faceNoseUrl from "./assets/task03-face-nose.png";
+import faceMouthUrl from "./assets/task03-face-mouth.png";
 
 interface NavActions {
   next: () => void;
@@ -2890,9 +2897,385 @@ function renderReflection(container: HTMLElement, nav: NavActions): void {
   void runAlignmentSequence(terminal, windowsLayer, nav);
 }
 
+const FACE_HEADING = "FACE CONFIGURATION";
+const FACE_INSTRUCTION = "Set the facial features.";
+
+const FACE_WIDTH = 320;
+const FACE_HEIGHT = 400;
+const FACE_SOURCE_BASE_HEIGHT_REM = 2.4;
+
+type FaceFeatureType = "left-eyebrow" | "right-eyebrow" | "left-eye" | "right-eye" | "nose" | "mouth";
+
+interface FacePlacedFeature {
+  id: number;
+  type: FaceFeatureType;
+  x: number;
+  y: number;
+}
+
+interface FaceTaskState {
+  placedFeatures: FacePlacedFeature[];
+}
+
+const FACE_FEATURE_DEFS: { type: FaceFeatureType; label: string; wide?: boolean; scale: number }[] = [
+  { type: "left-eye", label: "LEFT EYE", scale: 0.72 },
+  { type: "right-eye", label: "RIGHT EYE", scale: 0.72 },
+  { type: "left-eyebrow", label: "LEFT EYEBROW", scale: 0.88 },
+  { type: "right-eyebrow", label: "RIGHT EYEBROW", scale: 0.88 },
+  { type: "nose", label: "NOSE", wide: true, scale: 0.88 },
+  { type: "mouth", label: "MOUTH", wide: true, scale: 0.88 },
+];
+
+const FACE_FEATURE_DEF_MAP: Record<FaceFeatureType, (typeof FACE_FEATURE_DEFS)[number]> = Object.fromEntries(
+  FACE_FEATURE_DEFS.map((def) => [def.type, def]),
+) as Record<FaceFeatureType, (typeof FACE_FEATURE_DEFS)[number]>;
+
+interface FaceDragTracker {
+  current: (() => void) | null;
+}
+
+function faceToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * FACE_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * FACE_HEIGHT,
+  };
+}
+
+function faceIsInsideRect(clientX: number, clientY: number, rect: DOMRect): boolean {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function watchFaceDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+interface FaceInstance {
+  feature: FacePlacedFeature;
+  el: HTMLImageElement;
+  width: number;
+  height: number;
+}
+
+function buildFaceInterface(
+  background: HTMLImageElement,
+  sprites: Record<FaceFeatureType, HTMLImageElement>,
+  dragTracker: FaceDragTracker,
+  initial: FacePlacedFeature[] | null,
+  onChange: (placedFeatures: FacePlacedFeature[]) => void,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "face-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "face-background";
+  frame.appendChild(backgroundImg);
+
+  const scene = document.createElement("div");
+  scene.className = "face-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Face placement area. Drag facial features into this area.");
+  frame.appendChild(scene);
+
+  const instances: FaceInstance[] = [];
+  let nextId = 1;
+
+  function persist(): void {
+    onChange(instances.map((inst) => ({ ...inst.feature })));
+  }
+
+  function applyPosition(inst: FaceInstance): void {
+    inst.el.style.left = `${(inst.feature.x / FACE_WIDTH) * 100}%`;
+    inst.el.style.top = `${(inst.feature.y / FACE_HEIGHT) * 100}%`;
+  }
+
+  function wireReposition(inst: FaceInstance): void {
+    inst.el.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      inst.el.setPointerCapture(event.pointerId);
+      const startX = inst.feature.x;
+      const startY = inst.feature.y;
+      const pointerId = event.pointerId;
+
+      function onMove(moveEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        const { x, y } = faceToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+        inst.feature.x = x;
+        inst.feature.y = y;
+        applyPosition(inst);
+      }
+
+      function finish(cancelled: boolean): void {
+        inst.el.removeEventListener("pointermove", onMove);
+        inst.el.removeEventListener("pointerup", onUp);
+        inst.el.removeEventListener("pointercancel", onCancel);
+        if (inst.el.hasPointerCapture(pointerId)) {
+          inst.el.releasePointerCapture(pointerId);
+        }
+        dragTracker.current = null;
+        if (cancelled) {
+          inst.feature.x = startX;
+          inst.feature.y = startY;
+        } else {
+          inst.feature.x = clampRange(inst.feature.x, inst.width / 2, FACE_WIDTH - inst.width / 2);
+          inst.feature.y = clampRange(inst.feature.y, inst.height / 2, FACE_HEIGHT - inst.height / 2);
+        }
+        applyPosition(inst);
+        persist();
+      }
+
+      function onUp(): void {
+        finish(false);
+      }
+
+      function onCancel(): void {
+        finish(true);
+      }
+
+      dragTracker.current = onCancel;
+      inst.el.addEventListener("pointermove", onMove);
+      inst.el.addEventListener("pointerup", onUp);
+      inst.el.addEventListener("pointercancel", onCancel);
+    });
+  }
+
+  function instantiateFromState(feature: FacePlacedFeature): void {
+    const sprite = sprites[feature.type];
+    const def = FACE_FEATURE_DEF_MAP[feature.type];
+    const width = sprite.naturalWidth * def.scale;
+    const height = sprite.naturalHeight * def.scale;
+    feature.x = clampRange(feature.x, width / 2, FACE_WIDTH - width / 2);
+    feature.y = clampRange(feature.y, height / 2, FACE_HEIGHT - height / 2);
+
+    const el = document.createElement("img");
+    el.src = sprite.src;
+    el.alt = "";
+    el.setAttribute("aria-hidden", "true");
+    el.className = "face-placed";
+    el.style.width = `${(width / FACE_WIDTH) * 100}%`;
+
+    const inst: FaceInstance = { feature, el, width, height };
+    instances.push(inst);
+
+    scene.appendChild(el);
+    applyPosition(inst);
+    wireReposition(inst);
+  }
+
+  function placeFromSource(type: FaceFeatureType, x: number, y: number): void {
+    const feature: FacePlacedFeature = { id: nextId, type, x, y };
+    nextId += 1;
+    instantiateFromState(feature);
+    persist();
+  }
+
+  if (initial) {
+    for (const feature of initial) {
+      nextId = Math.max(nextId, feature.id + 1);
+      instantiateFromState({ ...feature });
+    }
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "face-controls";
+
+  for (const def of FACE_FEATURE_DEFS) {
+    const sprite = sprites[def.type];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = def.wide ? "face-source face-source-wide" : "face-source";
+    button.setAttribute("aria-label", `Place ${def.label.toLowerCase()}`);
+
+    const imageWrap = document.createElement("div");
+    imageWrap.className = "face-source-image-wrap";
+    button.appendChild(imageWrap);
+
+    const image = document.createElement("img");
+    image.src = sprite.src;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.className = "face-source-image";
+    image.style.height = `${FACE_SOURCE_BASE_HEIGHT_REM * def.scale}rem`;
+    imageWrap.appendChild(image);
+
+    const label = document.createElement("span");
+    label.className = "face-source-label";
+    label.textContent = def.label;
+    button.appendChild(label);
+
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      button.classList.add("face-source-active");
+      const pointerId = event.pointerId;
+
+      const ghost = document.createElement("img");
+      ghost.src = sprite.src;
+      ghost.alt = "";
+      ghost.className = "face-drag-ghost";
+      const startRect = scene.getBoundingClientRect();
+      ghost.style.width = `${((sprite.naturalWidth * def.scale) / FACE_WIDTH) * startRect.width}px`;
+      ghost.style.left = `${event.clientX}px`;
+      ghost.style.top = `${event.clientY}px`;
+      document.body.appendChild(ghost);
+
+      function onMove(moveEvent: PointerEvent): void {
+        ghost.style.left = `${moveEvent.clientX}px`;
+        ghost.style.top = `${moveEvent.clientY}px`;
+      }
+
+      function cleanup(): void {
+        if (button.hasPointerCapture(pointerId)) {
+          button.releasePointerCapture(pointerId);
+        }
+        button.removeEventListener("pointermove", onMove);
+        button.removeEventListener("pointerup", onUp);
+        button.removeEventListener("pointercancel", onCancel);
+        button.classList.remove("face-source-active");
+        dragTracker.current = null;
+        ghost.remove();
+      }
+
+      function onUp(upEvent: PointerEvent): void {
+        const rect = scene.getBoundingClientRect();
+        if (faceIsInsideRect(upEvent.clientX, upEvent.clientY, rect)) {
+          const { x, y } = faceToNativeCoords(upEvent.clientX, upEvent.clientY, rect);
+          placeFromSource(def.type, x, y);
+        }
+        cleanup();
+      }
+
+      function onCancel(): void {
+        cleanup();
+      }
+
+      dragTracker.current = onCancel;
+      button.addEventListener("pointermove", onMove);
+      button.addEventListener("pointerup", onUp);
+      button.addEventListener("pointercancel", onCancel);
+    });
+
+    controls.appendChild(button);
+  }
+
+  return { frame, controls };
+}
+
+function renderFaceTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runFaceTaskSequence(h1, terminal, container, nav);
+}
+
+async function runFaceTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, FACE_HEADING, FACE_INSTRUCTION, nav.alreadyVisited);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, leftEye, rightEye, leftEyebrow, rightEyebrow, nose, mouth] = await Promise.all([
+    loadImage(faceBackgroundUrl),
+    loadImage(faceLeftEyeUrl),
+    loadImage(faceRightEyeUrl),
+    loadImage(faceLeftEyebrowUrl),
+    loadImage(faceRightEyebrowUrl),
+    loadImage(faceNoseUrl),
+    loadImage(faceMouthUrl),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (
+    background === null ||
+    leftEye === null ||
+    rightEye === null ||
+    leftEyebrow === null ||
+    rightEyebrow === null ||
+    nose === null ||
+    mouth === null
+  ) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: FaceDragTracker = { current: null };
+  const { frame, controls } = buildFaceInterface(
+    background,
+    {
+      "left-eye": leftEye,
+      "right-eye": rightEye,
+      "left-eyebrow": leftEyebrow,
+      "right-eyebrow": rightEyebrow,
+      nose,
+      mouth,
+    },
+    dragTracker,
+    taskSession.face?.placedFeatures ?? null,
+    (placedFeatures) => {
+      taskSession.face = { placedFeatures };
+    },
+  );
+
+  const workspace = document.createElement("div");
+  workspace.className = "face-workspace";
+  container.appendChild(workspace);
+
+  watchFaceDetachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
+const FACE_INDEX = 4;
 const TASK4_INDEX = 6;
 const TASK5_INDEX = 7;
 const TASK3_INDEX = 8;
@@ -2903,6 +3286,7 @@ const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 interface TaskSession {
   habitat: HabitatState | null;
   sleeve: SleeveState | null;
+  face: FaceTaskState | null;
   task1: Task1SkyState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
@@ -2913,6 +3297,7 @@ interface TaskSession {
 const taskSession: TaskSession = {
   habitat: null,
   sleeve: null,
+  face: null,
   task1: null,
   task2: null,
   task3: null,
@@ -2929,6 +3314,9 @@ function resetTaskState(index: number): void {
       break;
     case SLEEVE_INDEX:
       taskSession.sleeve = null;
+      break;
+    case FACE_INDEX:
+      taskSession.face = null;
       break;
     case TASK4_INDEX:
       taskSession.task4 = null;
@@ -2953,6 +3341,7 @@ function resetTaskState(index: number): void {
 function restartExperience(): void {
   taskSession.habitat = null;
   taskSession.sleeve = null;
+  taskSession.face = null;
   taskSession.task1 = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
@@ -2967,7 +3356,7 @@ const SEQUENCE: Render[] = [
   renderBriefing,
   renderHabitatTask,
   renderSleeveTask,
-  renderTaskPlaceholder(3),
+  renderFaceTask,
   renderTaskPlaceholder(4),
   renderTask4,
   renderTask5,
