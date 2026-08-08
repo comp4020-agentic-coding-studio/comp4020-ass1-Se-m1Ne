@@ -3977,6 +3977,211 @@ async function runFlowerTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const LIGHT_SPEED_HEADING = "LIGHT SPEED CONFIGURATION";
+const LIGHT_SPEED_INSTRUCTION = "Set the speed of light.";
+
+const LIGHT_SPEED_MIN = 0;
+const LIGHT_SPEED_MAX = 999999;
+const LIGHT_SPEED_STEP = 1;
+const LIGHT_SPEED_INITIAL = 299792;
+const LIGHT_SPEED_REFERENCE_MARK = 299792;
+
+const LIGHT_PULSE_MIN_DURATION_S = 0.2;
+const LIGHT_PULSE_MAX_DURATION_S = 4;
+
+interface LightSpeedTaskState {
+  speed: number;
+}
+
+function formatLightSpeed(value: number): string {
+  return `${value.toLocaleString("en-US")} km/s`;
+}
+
+function lightSpeedToPulseDuration(speed: number): number {
+  if (speed <= LIGHT_SPEED_MIN) {
+    return 0;
+  }
+  const normalized = clampRange(speed, LIGHT_SPEED_MIN, LIGHT_SPEED_MAX) / LIGHT_SPEED_MAX;
+  const ratio = LIGHT_PULSE_MIN_DURATION_S / LIGHT_PULSE_MAX_DURATION_S;
+  return LIGHT_PULSE_MAX_DURATION_S * Math.pow(ratio, normalized);
+}
+
+function buildLightSpeedInterface(
+  initialSpeed: number,
+  onChange: (speed: number) => void,
+): { panel: HTMLElement; testArea: HTMLElement; readout: HTMLElement; sliderRow: HTMLElement } {
+  const panel = document.createElement("div");
+  panel.className = "lightspeed-panel";
+
+  const testArea = document.createElement("div");
+  testArea.className = "lightspeed-test";
+
+  const testLabel = document.createElement("div");
+  testLabel.className = "lightspeed-test-label";
+  testLabel.textContent = "LIGHT TRAVEL TEST";
+  testArea.appendChild(testLabel);
+
+  const trackRow = document.createElement("div");
+  trackRow.className = "lightspeed-track-row";
+
+  const emitterLabel = document.createElement("span");
+  emitterLabel.className = "lightspeed-marker-label";
+  emitterLabel.textContent = "EMITTER";
+  trackRow.appendChild(emitterLabel);
+
+  const track = document.createElement("div");
+  track.className = "lightspeed-track";
+
+  const emitterDot = document.createElement("div");
+  emitterDot.className = "lightspeed-emitter";
+  track.appendChild(emitterDot);
+
+  const line = document.createElement("div");
+  line.className = "lightspeed-line";
+  track.appendChild(line);
+
+  const pulse = document.createElement("div");
+  pulse.className = "lightspeed-pulse";
+  track.appendChild(pulse);
+
+  const receiverDot = document.createElement("div");
+  receiverDot.className = "lightspeed-receiver";
+  track.appendChild(receiverDot);
+
+  trackRow.appendChild(track);
+
+  const receiverLabel = document.createElement("span");
+  receiverLabel.className = "lightspeed-marker-label";
+  receiverLabel.textContent = "RECEIVER";
+  trackRow.appendChild(receiverLabel);
+
+  testArea.appendChild(trackRow);
+
+  const readout = document.createElement("div");
+  readout.className = "lightspeed-readout";
+
+  const readoutLabel = document.createElement("div");
+  readoutLabel.className = "lightspeed-readout-label";
+  readoutLabel.textContent = "LIGHT SPEED";
+  readout.appendChild(readoutLabel);
+
+  const readoutValue = document.createElement("div");
+  readoutValue.className = "lightspeed-readout-value";
+  readout.appendChild(readoutValue);
+
+  const sliderRow = document.createElement("div");
+  sliderRow.className = "lightspeed-slider-row";
+
+  const minLabel = document.createElement("span");
+  minLabel.className = "lightspeed-range-label";
+  minLabel.textContent = "0 km/s";
+  sliderRow.appendChild(minLabel);
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.className = "lightspeed-slider";
+  slider.min = String(LIGHT_SPEED_MIN);
+  slider.max = String(LIGHT_SPEED_MAX);
+  slider.step = String(LIGHT_SPEED_STEP);
+  slider.value = String(initialSpeed);
+  slider.setAttribute("list", "lightspeed-reference-ticks");
+  slider.setAttribute("aria-label", "Speed of light in kilometres per second");
+  sliderRow.appendChild(slider);
+
+  const ticks = document.createElement("datalist");
+  ticks.id = "lightspeed-reference-ticks";
+  const tick = document.createElement("option");
+  tick.value = String(LIGHT_SPEED_REFERENCE_MARK);
+  ticks.appendChild(tick);
+  sliderRow.appendChild(ticks);
+
+  const maxLabel = document.createElement("span");
+  maxLabel.className = "lightspeed-range-label";
+  maxLabel.textContent = "999,999 km/s";
+  sliderRow.appendChild(maxLabel);
+
+  function update(speed: number): void {
+    readoutValue.textContent = formatLightSpeed(speed);
+    const duration = lightSpeedToPulseDuration(speed);
+    if (duration <= 0) {
+      pulse.classList.add("lightspeed-pulse-idle");
+      pulse.style.removeProperty("--lightspeed-pulse-duration");
+    } else {
+      pulse.classList.remove("lightspeed-pulse-idle");
+      pulse.style.setProperty("--lightspeed-pulse-duration", `${duration}s`);
+    }
+  }
+
+  update(initialSpeed);
+
+  slider.addEventListener("input", () => {
+    const speed = Number(slider.value);
+    update(speed);
+    onChange(speed);
+  });
+
+  return { panel, testArea, readout, sliderRow };
+}
+
+function renderLightSpeedTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runLightSpeedTaskSequence(h1, terminal, container, nav);
+}
+
+async function runLightSpeedTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, LIGHT_SPEED_HEADING, LIGHT_SPEED_INSTRUCTION, nav.alreadyVisited);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const initialSpeed = taskSession.lightSpeed?.speed ?? LIGHT_SPEED_INITIAL;
+  const { panel, testArea, readout, sliderRow } = buildLightSpeedInterface(initialSpeed, (speed) => {
+    taskSession.lightSpeed = { speed };
+  });
+
+  container.appendChild(panel);
+
+  testArea.classList.add("task1-reveal-in");
+  panel.appendChild(testArea);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  readout.classList.add("task1-reveal-in");
+  panel.appendChild(readout);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  sliderRow.classList.add("task1-reveal-in");
+  panel.appendChild(sliderRow);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -3987,6 +4192,7 @@ const TASK5_INDEX = 7;
 const TASK3_INDEX = 8;
 const TASK2_INDEX = 9;
 const FLOWER_INDEX = 10;
+const LIGHT_SPEED_INDEX = 11;
 const TASK1_INDEX = 13;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
@@ -3996,6 +4202,7 @@ interface TaskSession {
   face: FaceTaskState | null;
   shadow: ShadowTaskState | null;
   flower: FlowerTaskState | null;
+  lightSpeed: LightSpeedTaskState | null;
   task1: Task1SkyState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
@@ -4009,6 +4216,7 @@ const taskSession: TaskSession = {
   face: null,
   shadow: null,
   flower: null,
+  lightSpeed: null,
   task1: null,
   task2: null,
   task3: null,
@@ -4034,6 +4242,9 @@ function resetTaskState(index: number): void {
       break;
     case FLOWER_INDEX:
       taskSession.flower = null;
+      break;
+    case LIGHT_SPEED_INDEX:
+      taskSession.lightSpeed = null;
       break;
     case TASK4_INDEX:
       taskSession.task4 = null;
@@ -4061,6 +4272,7 @@ function restartExperience(): void {
   taskSession.face = null;
   taskSession.shadow = null;
   taskSession.flower = null;
+  taskSession.lightSpeed = null;
   taskSession.task1 = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
@@ -4082,7 +4294,7 @@ const SEQUENCE: Render[] = [
   renderTask3,
   renderTask2,
   renderFlowerTask,
-  renderTaskPlaceholder(10),
+  renderLightSpeedTask,
   renderTaskPlaceholder(11),
   renderTask1,
   renderTaskPlaceholder(13),
