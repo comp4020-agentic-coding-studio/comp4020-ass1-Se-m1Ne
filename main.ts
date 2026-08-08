@@ -27,6 +27,10 @@ interface NavActions {
   next: () => void;
   restart: () => void;
   recheck: () => void;
+  previous: () => void;
+  redo: () => void;
+  hasPrevious: boolean;
+  alreadyVisited: boolean;
 }
 type Render = (container: HTMLElement, nav: NavActions) => void;
 
@@ -55,6 +59,78 @@ function actionButton(container: HTMLElement, label: string, onClick: () => void
   }
   button.addEventListener("click", onClick);
   container.appendChild(button);
+}
+
+async function runTaskIntro(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  headingText: string,
+  instructionText: string,
+  alreadyVisited: boolean,
+): Promise<void> {
+  if (alreadyVisited) {
+    h1.textContent = headingText;
+    const line = document.createElement("div");
+    line.className = "term-line";
+    line.textContent = instructionText;
+    terminal.appendChild(line);
+    return;
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, headingText);
+  await sleep(300);
+  await typeLine(terminal, instructionText);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+}
+
+function addTaskNavControls(
+  container: HTMLElement,
+  nav: NavActions,
+): { redoButton: HTMLButtonElement; confirmButton: HTMLButtonElement } {
+  const group = document.createElement("div");
+  group.className = "task-action-group task1-reveal-in";
+  container.appendChild(group);
+
+  if (nav.hasPrevious) {
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "task-action-secondary";
+    back.textContent = "← BACK";
+    back.setAttribute("aria-label", "Previous task");
+    back.addEventListener("click", nav.previous);
+    group.appendChild(back);
+  }
+
+  const redoButton = document.createElement("button");
+  redoButton.className = "task-action-secondary";
+  redoButton.type = "button";
+  redoButton.textContent = "REDO";
+  redoButton.setAttribute("aria-label", "Redo current task");
+  redoButton.addEventListener("click", nav.redo);
+  group.appendChild(redoButton);
+
+  const confirmButton = document.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.textContent = "CONFIRM";
+  confirmButton.addEventListener("click", nav.next);
+  group.appendChild(confirmButton);
+
+  return { redoButton, confirmButton };
 }
 
 function renderWelcome(container: HTMLElement, nav: NavActions): void {
@@ -200,7 +276,7 @@ function renderTaskPlaceholder(n: number): Render {
   return (container, nav) => {
     heading(container, `Task ${n}`);
     paragraph(container, `Task ${n} Placeholder.`);
-    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    addTaskNavControls(container, nav);
   };
 }
 
@@ -270,9 +346,15 @@ function colorsEqual(a: RgbaColor, b: RgbaColor): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
+interface Task1SkyState {
+  paint: ImageData;
+}
+
 function buildTask1Interface(
   img: HTMLImageElement,
   mask: Uint8Array,
+  initialPaint: ImageData | null,
+  onChange: (paint: ImageData) => void,
 ): { frame: HTMLElement; palette: HTMLElement; tools: HTMLElement } {
   const frame = document.createElement("div");
   frame.className = "task1-canvas-frame";
@@ -292,6 +374,13 @@ function buildTask1Interface(
   paintCanvas.setAttribute("role", "img");
   paintCanvas.setAttribute("aria-label", "Editable pixel-art sky. Drawing is limited to the transparent sky area.");
   const paintCtx = paintCanvas.getContext("2d")!;
+  if (initialPaint) {
+    paintCtx.putImageData(initialPaint, 0, 0);
+  }
+
+  function persist(): void {
+    onChange(paintCtx.getImageData(0, 0, TASK1_WIDTH, TASK1_HEIGHT));
+  }
 
   frame.append(paintCanvas, baseCanvas);
 
@@ -399,6 +488,7 @@ function buildTask1Interface(
     event.preventDefault();
     if (selectedTool === "fill") {
       floodFill(x, y);
+      persist();
       return;
     }
     paintCanvas.setPointerCapture(event.pointerId);
@@ -425,6 +515,7 @@ function buildTask1Interface(
     if (paintCanvas.hasPointerCapture(event.pointerId)) {
       paintCanvas.releasePointerCapture(event.pointerId);
     }
+    persist();
   }
 
   paintCanvas.addEventListener("pointerup", stopDrawing);
@@ -520,26 +611,7 @@ async function runTask1Sequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, TASK1_HEADING);
-  await sleep(300);
-  await typeLine(terminal, TASK1_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, TASK1_HEADING, TASK1_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
@@ -561,7 +633,9 @@ async function runTask1Sequence(
   }
 
   const mask = buildSkyMask(img);
-  const { frame, palette, tools } = buildTask1Interface(img, mask);
+  const { frame, palette, tools } = buildTask1Interface(img, mask, taskSession.task1?.paint ?? null, (paint) => {
+    taskSession.task1 = { paint };
+  });
 
   const workspace = document.createElement("div");
   workspace.className = "task1-workspace";
@@ -592,12 +666,7 @@ async function runTask1Sequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const TASK2_HEADING = "LIGHT SOURCE CONFIGURATION";
@@ -652,10 +721,16 @@ function watchTask2Detachment(node: HTMLElement, onDetached: () => void): void {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+interface Task2LightState {
+  placed: { type: Task2SourceType; x: number; y: number }[];
+}
+
 function buildTask2Interface(
   background: HTMLImageElement,
   sprites: Record<Task2SourceType, HTMLImageElement>,
   dragTracker: Task2DragTracker,
+  initialPlaced: { type: Task2SourceType; x: number; y: number }[] | null,
+  onChange: (placed: { type: Task2SourceType; x: number; y: number }[]) => void,
 ): { frame: HTMLElement; controls: HTMLElement } {
   const frame = document.createElement("div");
   frame.className = "task2-frame";
@@ -672,6 +747,12 @@ function buildTask2Interface(
   scene.setAttribute("role", "group");
   scene.setAttribute("aria-label", "Sky placement area. Drag stars, moons and suns into this area.");
   frame.appendChild(scene);
+
+  const objects: Task2PlacedObject[] = [];
+
+  function persist(): void {
+    onChange(objects.map((obj) => ({ type: obj.type, x: obj.x, y: obj.y })));
+  }
 
   function applyPosition(obj: Task2PlacedObject): void {
     const leftPercent = ((obj.x - obj.width / 2) / TASK2_WIDTH) * 100;
@@ -713,6 +794,7 @@ function buildTask2Interface(
           obj.y = startY;
         }
         applyPosition(obj);
+        persist();
       }
 
       function onUp(upEvent: PointerEvent): void {
@@ -753,6 +835,14 @@ function buildTask2Interface(
     applyPosition(obj);
     scene.appendChild(el);
     wireDraggableObject(obj);
+    objects.push(obj);
+    persist();
+  }
+
+  if (initialPlaced) {
+    for (const item of initialPlaced) {
+      createPlacedObject(item.type, item.x, item.y);
+    }
   }
 
   const controls = document.createElement("div");
@@ -857,26 +947,7 @@ async function runTask2Sequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, TASK2_HEADING);
-  await sleep(300);
-  await typeLine(terminal, TASK2_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, TASK2_HEADING, TASK2_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
@@ -903,7 +974,15 @@ async function runTask2Sequence(
   }
 
   const dragTracker: Task2DragTracker = { current: null };
-  const { frame, controls } = buildTask2Interface(background, { star, moon, sun }, dragTracker);
+  const { frame, controls } = buildTask2Interface(
+    background,
+    { star, moon, sun },
+    dragTracker,
+    taskSession.task2?.placed ?? null,
+    (placed) => {
+      taskSession.task2 = { placed };
+    },
+  );
 
   const workspace = document.createElement("div");
   workspace.className = "task2-workspace";
@@ -928,12 +1007,7 @@ async function runTask2Sequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const TASK3_HEADING = "WEATHER CONFIGURATION";
@@ -983,10 +1057,16 @@ function watchTask3Detachment(node: HTMLElement, onDetached: () => void): void {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+interface Task3WeatherState {
+  placed: { type: Task3SourceType; x: number; y: number }[];
+}
+
 function buildTask3Interface(
   background: HTMLImageElement,
   sprites: Record<Task3SourceType, HTMLImageElement>,
   dragTracker: Task3DragTracker,
+  initialPlaced: { type: Task3SourceType; x: number; y: number }[] | null,
+  onChange: (placed: { type: Task3SourceType; x: number; y: number }[]) => void,
 ): { frame: HTMLElement; controls: HTMLElement } {
   const frame = document.createElement("div");
   frame.className = "task3-frame";
@@ -1003,6 +1083,12 @@ function buildTask3Interface(
   scene.setAttribute("role", "group");
   scene.setAttribute("aria-label", "Weather placement area. Drag storm clouds and white clouds into this area.");
   frame.appendChild(scene);
+
+  const objects: Task3PlacedObject[] = [];
+
+  function persist(): void {
+    onChange(objects.map((obj) => ({ type: obj.type, x: obj.x, y: obj.y })));
+  }
 
   function applyPosition(obj: Task3PlacedObject): void {
     const leftPercent = ((obj.x - obj.width / 2) / TASK3_WIDTH) * 100;
@@ -1044,6 +1130,7 @@ function buildTask3Interface(
           obj.y = startY;
         }
         applyPosition(obj);
+        persist();
       }
 
       function onUp(upEvent: PointerEvent): void {
@@ -1084,6 +1171,14 @@ function buildTask3Interface(
     applyPosition(obj);
     scene.appendChild(el);
     wireDraggableObject(obj);
+    objects.push(obj);
+    persist();
+  }
+
+  if (initialPlaced) {
+    for (const item of initialPlaced) {
+      createPlacedObject(item.type, item.x, item.y);
+    }
   }
 
   const controls = document.createElement("div");
@@ -1188,26 +1283,7 @@ async function runTask3Sequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, TASK3_HEADING);
-  await sleep(300);
-  await typeLine(terminal, TASK3_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, TASK3_HEADING, TASK3_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
@@ -1237,6 +1313,10 @@ async function runTask3Sequence(
     background,
     { "storm-cloud": stormCloud, "white-cloud": whiteCloud },
     dragTracker,
+    taskSession.task3?.placed ?? null,
+    (placed) => {
+      taskSession.task3 = { placed };
+    },
   );
 
   const workspace = document.createElement("div");
@@ -1262,12 +1342,7 @@ async function runTask3Sequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const TASK4_HEADING = "DAY LENGTH CONFIGURATION";
@@ -1321,7 +1396,18 @@ function watchTask4Detachment(node: HTMLElement, onDetached: () => void): void {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-function buildTask4Interface(dragTracker: Task4DragTracker): { clock: HTMLElement; display: HTMLElement } {
+interface Task4HandsState {
+  hourTotalDegrees: number;
+  minuteTotalDegrees: number;
+  hourAngle: number;
+  minuteAngle: number;
+}
+
+function buildTask4Interface(
+  dragTracker: Task4DragTracker,
+  initial: Task4HandsState | null,
+  onChange: (state: Task4HandsState) => void,
+): { clock: HTMLElement; display: HTMLElement } {
   const clock = document.createElement("div");
   clock.className = "task4-clock";
 
@@ -1382,18 +1468,35 @@ function buildTask4Interface(dragTracker: Task4DragTracker): { clock: HTMLElemen
 
   const displayValue = document.createElement("div");
   displayValue.className = "task4-display-value";
-  displayValue.textContent = task4FormatDuration(TASK4_BASE_MINUTES);
   display.appendChild(displayValue);
 
-  let hourTotalDegrees = 0;
-  let minuteTotalDegrees = 0;
+  let hourTotalDegrees = initial?.hourTotalDegrees ?? 0;
+  let minuteTotalDegrees = initial?.minuteTotalDegrees ?? 0;
+  let hourAngle = initial?.hourAngle ?? 0;
+  let minuteAngle = initial?.minuteAngle ?? 0;
+
+  hourHit.style.transform = `rotate(${hourAngle}deg)`;
+  hourHand.style.transform = `rotate(${hourAngle}deg)`;
+  minuteHit.style.transform = `rotate(${minuteAngle}deg)`;
+  minuteHand.style.transform = `rotate(${minuteAngle}deg)`;
 
   function updateDisplay(): void {
     const totalMinutes = TASK4_BASE_MINUTES + (hourTotalDegrees / 30) * 60 + minuteTotalDegrees / 6;
     displayValue.textContent = task4FormatDuration(totalMinutes);
   }
 
-  function wireHand(hit: HTMLElement, handEl: HTMLElement, applyDelta: (delta: number) => void): void {
+  updateDisplay();
+
+  function persist(): void {
+    onChange({ hourTotalDegrees, minuteTotalDegrees, hourAngle, minuteAngle });
+  }
+
+  function wireHand(
+    hit: HTMLElement,
+    handEl: HTMLElement,
+    applyDelta: (delta: number) => void,
+    setAngle: (angle: number) => void,
+  ): void {
     hit.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       hit.setPointerCapture(event.pointerId);
@@ -1408,7 +1511,9 @@ function buildTask4Interface(dragTracker: Task4DragTracker): { clock: HTMLElemen
         lastAngle = angle;
         hit.style.transform = `rotate(${angle}deg)`;
         handEl.style.transform = `rotate(${angle}deg)`;
+        setAngle(angle);
         updateDisplay();
+        persist();
       }
 
       function cleanup(): void {
@@ -1435,13 +1540,27 @@ function buildTask4Interface(dragTracker: Task4DragTracker): { clock: HTMLElemen
     });
   }
 
-  wireHand(hourHit, hourHand, (delta) => {
-    hourTotalDegrees += delta;
-  });
+  wireHand(
+    hourHit,
+    hourHand,
+    (delta) => {
+      hourTotalDegrees += delta;
+    },
+    (angle) => {
+      hourAngle = angle;
+    },
+  );
 
-  wireHand(minuteHit, minuteHand, (delta) => {
-    minuteTotalDegrees += delta;
-  });
+  wireHand(
+    minuteHit,
+    minuteHand,
+    (delta) => {
+      minuteTotalDegrees += delta;
+    },
+    (angle) => {
+      minuteAngle = angle;
+    },
+  );
 
   return { clock, display };
 }
@@ -1468,33 +1587,16 @@ async function runTask4Sequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, TASK4_HEADING);
-  await sleep(300);
-  await typeLine(terminal, TASK4_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, TASK4_HEADING, TASK4_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
   }
 
   const dragTracker: Task4DragTracker = { current: null };
-  const { clock, display } = buildTask4Interface(dragTracker);
+  const { clock, display } = buildTask4Interface(dragTracker, taskSession.task4, (state) => {
+    taskSession.task4 = state;
+  });
 
   const workspace = document.createElement("div");
   workspace.className = "task4-workspace";
@@ -1519,12 +1621,7 @@ async function runTask4Sequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const TASK5_HEADING = "SEASON CONFIGURATION";
@@ -1563,10 +1660,16 @@ function watchTask5Detachment(node: HTMLElement, onDetached: () => void): void {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+interface Task5SlotsState {
+  slots: (Task5SeasonType | null)[];
+}
+
 function buildTask5Interface(
   background: HTMLImageElement,
   sprites: Record<Task5SeasonType, HTMLImageElement>,
   dragTracker: Task5DragTracker,
+  initialSlots: (Task5SeasonType | null)[] | null,
+  onChange: (slots: (Task5SeasonType | null)[]) => void,
 ): { frame: HTMLElement; controls: HTMLElement } {
   const frame = document.createElement("div");
   frame.className = "task5-frame";
@@ -1584,8 +1687,14 @@ function buildTask5Interface(
   slotsLayer.setAttribute("aria-label", "Season configuration area. Drag seasons into the four slots.");
   frame.appendChild(slotsLayer);
 
-  const slots: (Task5SeasonType | null)[] = Array.from({ length: TASK5_SLOT_COUNT }, () => null);
+  const slots: (Task5SeasonType | null)[] = initialSlots
+    ? [...initialSlots]
+    : Array.from({ length: TASK5_SLOT_COUNT }, () => null);
   const slotElements: HTMLElement[] = [];
+
+  function persist(): void {
+    onChange([...slots]);
+  }
 
   for (let i = 0; i < TASK5_SLOT_COUNT; i += 1) {
     const slotEl = document.createElement("div");
@@ -1698,6 +1807,7 @@ function buildTask5Interface(
         slots[originIndex] = null;
         renderSlot(originIndex);
       }
+      persist();
     }
 
     function onCancel(): void {
@@ -1780,26 +1890,7 @@ async function runTask5Sequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, TASK5_HEADING);
-  await sleep(300);
-  await typeLine(terminal, TASK5_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, TASK5_HEADING, TASK5_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
@@ -1827,7 +1918,15 @@ async function runTask5Sequence(
   }
 
   const dragTracker: Task5DragTracker = { current: null };
-  const { frame, controls } = buildTask5Interface(background, { spring, summer, autumn, winter }, dragTracker);
+  const { frame, controls } = buildTask5Interface(
+    background,
+    { spring, summer, autumn, winter },
+    dragTracker,
+    taskSession.task5?.slots ?? null,
+    (slots) => {
+      taskSession.task5 = { slots };
+    },
+  );
 
   const workspace = document.createElement("div");
   workspace.className = "task5-workspace";
@@ -1852,12 +1951,7 @@ async function runTask5Sequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const HABITAT_HEADING = "HABITAT CONFIGURATION";
@@ -1876,6 +1970,10 @@ const HABITAT_FISH_INITIAL_POSITIONS = [
 
 interface HabitatDragTracker {
   current: (() => void) | null;
+}
+
+interface HabitatState {
+  fish: { x: number; y: number }[];
 }
 
 function habitatToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
@@ -1899,14 +1997,15 @@ function createHabitatFish(
   scene: HTMLElement,
   fish: HTMLImageElement,
   label: string,
-  initialXPercent: number,
-  initialYPercent: number,
+  initialX: number,
+  initialY: number,
   halfWidth: number,
   halfHeight: number,
   dragTracker: HabitatDragTracker,
+  onSettled: (x: number, y: number) => void,
 ): HTMLElement {
-  let fishX = (initialXPercent / 100) * HABITAT_WIDTH;
-  let fishY = (initialYPercent / 100) * HABITAT_HEIGHT;
+  let fishX = initialX;
+  let fishY = initialY;
 
   const fishButton = document.createElement("button");
   fishButton.type = "button";
@@ -1953,6 +2052,7 @@ function createHabitatFish(
       }
       fishButton.classList.remove("habitat-fish-active");
       dragTracker.current = null;
+      onSettled(fishX, fishY);
     }
 
     function onUp(): void {
@@ -1979,6 +2079,8 @@ function buildHabitatInterface(
   background: HTMLImageElement,
   fish: HTMLImageElement,
   dragTracker: HabitatDragTracker,
+  savedFish: { x: number; y: number }[] | null,
+  onFishSettled: (index: number, x: number, y: number) => void,
 ): { frame: HTMLElement; attachFish: () => void } {
   const frame = document.createElement("div");
   frame.className = "habitat-frame";
@@ -2002,18 +2104,22 @@ function buildHabitatInterface(
   const halfWidth = fishWidthNative / 2;
   const halfHeight = fishHeightNative / 2;
 
-  const fishButtons = HABITAT_FISH_INITIAL_POSITIONS.map((pos, index) =>
-    createHabitatFish(
+  const fishButtons = HABITAT_FISH_INITIAL_POSITIONS.map((pos, index) => {
+    const saved = savedFish?.[index];
+    const initialX = saved ? saved.x : (pos.xPercent / 100) * HABITAT_WIDTH;
+    const initialY = saved ? saved.y : (pos.yPercent / 100) * HABITAT_HEIGHT;
+    return createHabitatFish(
       scene,
       fish,
       `Fish ${index + 1}. Drag to reposition.`,
-      pos.xPercent,
-      pos.yPercent,
+      initialX,
+      initialY,
       halfWidth,
       halfHeight,
       dragTracker,
-    ),
-  );
+      (x, y) => onFishSettled(index, x, y),
+    );
+  });
 
   function attachFish(): void {
     for (const fishButton of fishButtons) {
@@ -2047,26 +2153,7 @@ async function runHabitatTaskSequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, HABITAT_HEADING);
-  await sleep(300);
-  await typeLine(terminal, HABITAT_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, HABITAT_HEADING, HABITAT_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
@@ -2087,8 +2174,19 @@ async function runHabitatTaskSequence(
     return;
   }
 
+  const savedFish = taskSession.habitat?.fish ?? null;
+  const fishState: { x: number; y: number }[] = savedFish
+    ? savedFish.map((pos) => ({ ...pos }))
+    : HABITAT_FISH_INITIAL_POSITIONS.map((pos) => ({
+        x: (pos.xPercent / 100) * HABITAT_WIDTH,
+        y: (pos.yPercent / 100) * HABITAT_HEIGHT,
+      }));
+
   const dragTracker: HabitatDragTracker = { current: null };
-  const { frame, attachFish } = buildHabitatInterface(background, fish, dragTracker);
+  const { frame, attachFish } = buildHabitatInterface(background, fish, dragTracker, fishState, (index, x, y) => {
+    fishState[index] = { x, y };
+    taskSession.habitat = { fish: fishState.map((pos) => ({ ...pos })) };
+  });
 
   const workspace = document.createElement("div");
   workspace.className = "habitat-workspace";
@@ -2113,12 +2211,7 @@ async function runHabitatTaskSequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const SLEEVE_HEADING = "GARMENT CONFIGURATION";
@@ -2219,11 +2312,17 @@ function sleeveHitLabel(def: SleeveDef): string {
   return `${side} ${def.position} sleeve. Click to remove when scissors are selected.`;
 }
 
+interface SleeveState {
+  attached: Record<SleeveId, boolean>;
+}
+
 function buildSleeveInterface(
   torso: HTMLImageElement,
   scissors: HTMLImageElement,
   detached: HTMLImageElement,
   sleeveSprites: Record<SleeveId, HTMLImageElement>,
+  savedAttached: Record<SleeveId, boolean> | null,
+  onChange: (attached: Record<SleeveId, boolean>) => void,
 ): { frame: HTMLElement; controls: HTMLElement } {
   const frame = document.createElement("div");
   frame.className = "sleeve-frame";
@@ -2239,14 +2338,16 @@ function buildSleeveInterface(
   torsoImg.style.width = `${SLEEVE_TORSO_WIDTH_PERCENT}%`;
   frame.appendChild(torsoImg);
 
-  const attached: Record<SleeveId, boolean> = {
-    "left-01": true,
-    "left-02": true,
-    "left-03": true,
-    "right-01": true,
-    "right-02": true,
-    "right-03": true,
-  };
+  const attached: Record<SleeveId, boolean> = savedAttached
+    ? { ...savedAttached }
+    : {
+        "left-01": true,
+        "left-02": true,
+        "left-03": true,
+        "right-01": true,
+        "right-02": true,
+        "right-03": true,
+      };
 
   const sleeveHits = new Map<SleeveId, HTMLElement>();
   let scissorsSelected = false;
@@ -2296,9 +2397,13 @@ function buildSleeveInterface(
     if (def) {
       spawnFall(def);
     }
+    onChange({ ...attached });
   }
 
   for (const def of SLEEVE_DEFS) {
+    if (!attached[def.id]) {
+      continue;
+    }
     const sprite = sleeveSprites[def.id];
 
     const hit = document.createElement("button");
@@ -2388,26 +2493,7 @@ async function runSleeveTaskSequence(
   nav: NavActions,
 ): Promise<void> {
   await sleep(0);
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      return;
-    }
-    skipCurrentTyping();
-  }
-  function onClick(): void {
-    skipCurrentTyping();
-  }
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("click", onClick);
-
-  await typeText(h1, SLEEVE_HEADING);
-  await sleep(300);
-  await typeLine(terminal, SLEEVE_INSTRUCTION);
-  await sleep(400);
-
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("click", onClick);
+  await runTaskIntro(h1, terminal, SLEEVE_HEADING, SLEEVE_INSTRUCTION, nav.alreadyVisited);
 
   if (!terminal.isConnected) {
     return;
@@ -2457,7 +2543,16 @@ async function runSleeveTaskSequence(
     "right-03": right03,
   };
 
-  const { frame, controls } = buildSleeveInterface(torso, scissors, detached, sleeveSprites);
+  const { frame, controls } = buildSleeveInterface(
+    torso,
+    scissors,
+    detached,
+    sleeveSprites,
+    taskSession.sleeve?.attached ?? null,
+    (attached) => {
+      taskSession.sleeve = { attached };
+    },
+  );
 
   const workspace = document.createElement("div");
   workspace.className = "sleeve-workspace";
@@ -2477,12 +2572,7 @@ async function runSleeveTaskSequence(
     return;
   }
 
-  const nextButton = document.createElement("button");
-  nextButton.type = "button";
-  nextButton.textContent = "CONFIRM";
-  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
-  nextButton.addEventListener("click", nav.next);
-  container.appendChild(nextButton);
+  addTaskNavControls(container, nav);
 }
 
 const CHOICE_LINES = [
@@ -2801,6 +2891,76 @@ function renderReflection(container: HTMLElement, nav: NavActions): void {
 }
 
 const FIRST_TASK_INDEX = 2;
+const HABITAT_INDEX = 2;
+const SLEEVE_INDEX = 3;
+const TASK4_INDEX = 6;
+const TASK5_INDEX = 7;
+const TASK3_INDEX = 8;
+const TASK2_INDEX = 9;
+const TASK1_INDEX = 13;
+const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
+
+interface TaskSession {
+  habitat: HabitatState | null;
+  sleeve: SleeveState | null;
+  task1: Task1SkyState | null;
+  task2: Task2LightState | null;
+  task3: Task3WeatherState | null;
+  task4: Task4HandsState | null;
+  task5: Task5SlotsState | null;
+}
+
+const taskSession: TaskSession = {
+  habitat: null,
+  sleeve: null,
+  task1: null,
+  task2: null,
+  task3: null,
+  task4: null,
+  task5: null,
+};
+
+const visitedTaskIndices = new Set<number>();
+
+function resetTaskState(index: number): void {
+  switch (index) {
+    case HABITAT_INDEX:
+      taskSession.habitat = null;
+      break;
+    case SLEEVE_INDEX:
+      taskSession.sleeve = null;
+      break;
+    case TASK4_INDEX:
+      taskSession.task4 = null;
+      break;
+    case TASK5_INDEX:
+      taskSession.task5 = null;
+      break;
+    case TASK3_INDEX:
+      taskSession.task3 = null;
+      break;
+    case TASK2_INDEX:
+      taskSession.task2 = null;
+      break;
+    case TASK1_INDEX:
+      taskSession.task1 = null;
+      break;
+    default:
+      break;
+  }
+}
+
+function restartExperience(): void {
+  taskSession.habitat = null;
+  taskSession.sleeve = null;
+  taskSession.task1 = null;
+  taskSession.task2 = null;
+  taskSession.task3 = null;
+  taskSession.task4 = null;
+  taskSession.task5 = null;
+  visitedTaskIndices.clear();
+  show(0);
+}
 
 const SEQUENCE: Render[] = [
   renderWelcome,
@@ -2834,12 +2994,28 @@ const container = document.querySelector<HTMLElement>("#screen")!;
 
 function show(index: number): void {
   currentIndex = index;
+  const isTaskIndex = index >= FIRST_TASK_INDEX && index <= LAST_TASK_INDEX;
+  const alreadyVisited = isTaskIndex && visitedTaskIndices.has(index);
+  if (isTaskIndex) {
+    visitedTaskIndices.add(index);
+  }
   container.replaceChildren();
   container.classList.remove("term-wide");
   SEQUENCE[currentIndex](container, {
     next: () => show(currentIndex + 1),
-    restart: () => show(0),
+    restart: () => restartExperience(),
     recheck: () => show(FIRST_TASK_INDEX),
+    previous: () => {
+      if (isTaskIndex && currentIndex > FIRST_TASK_INDEX) {
+        show(currentIndex - 1);
+      }
+    },
+    redo: () => {
+      resetTaskState(currentIndex);
+      show(currentIndex);
+    },
+    hasPrevious: isTaskIndex && index > FIRST_TASK_INDEX,
+    alreadyVisited,
   });
   container.querySelector("h1")?.focus();
 }
