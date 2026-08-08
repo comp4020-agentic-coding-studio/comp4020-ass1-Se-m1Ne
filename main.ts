@@ -20,6 +20,8 @@ import sleeveLeft03Url from "./assets/task02-sleeve-left-03.png";
 import sleeveRight01Url from "./assets/task02-sleeve-right-01.png";
 import sleeveRight02Url from "./assets/task02-sleeve-right-02.png";
 import sleeveRight03Url from "./assets/task02-sleeve-right-03.png";
+import habitatBackgroundUrl from "./assets/fish-position-background.png";
+import habitatFishUrl from "./assets/fish-position-fish.png";
 
 interface NavActions {
   next: () => void;
@@ -1858,6 +1860,267 @@ async function runTask5Sequence(
   container.appendChild(nextButton);
 }
 
+const HABITAT_HEADING = "HABITAT CONFIGURATION";
+const HABITAT_INSTRUCTION = "Set the fish position.";
+
+const HABITAT_WIDTH = 640;
+const HABITAT_HEIGHT = 360;
+
+const HABITAT_FISH_WIDTH_PERCENT = 9;
+
+const HABITAT_FISH_INITIAL_POSITIONS = [
+  { xPercent: 32, yPercent: 17 },
+  { xPercent: 50, yPercent: 24 },
+  { xPercent: 68, yPercent: 14 },
+];
+
+interface HabitatDragTracker {
+  current: (() => void) | null;
+}
+
+function habitatToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * HABITAT_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * HABITAT_HEIGHT,
+  };
+}
+
+function watchHabitatDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function createHabitatFish(
+  scene: HTMLElement,
+  fish: HTMLImageElement,
+  label: string,
+  initialXPercent: number,
+  initialYPercent: number,
+  halfWidth: number,
+  halfHeight: number,
+  dragTracker: HabitatDragTracker,
+): HTMLElement {
+  let fishX = (initialXPercent / 100) * HABITAT_WIDTH;
+  let fishY = (initialYPercent / 100) * HABITAT_HEIGHT;
+
+  const fishButton = document.createElement("button");
+  fishButton.type = "button";
+  fishButton.className = "habitat-fish";
+  fishButton.setAttribute("aria-label", label);
+  fishButton.style.width = `${HABITAT_FISH_WIDTH_PERCENT}%`;
+  fishButton.style.aspectRatio = `${fish.naturalWidth} / ${fish.naturalHeight}`;
+
+  const fishImg = document.createElement("img");
+  fishImg.src = fish.src;
+  fishImg.alt = "";
+  fishImg.setAttribute("aria-hidden", "true");
+  fishImg.className = "habitat-fish-image";
+  fishButton.appendChild(fishImg);
+
+  function applyFishPosition(): void {
+    fishButton.style.left = `${(fishX / HABITAT_WIDTH) * 100}%`;
+    fishButton.style.top = `${(fishY / HABITAT_HEIGHT) * 100}%`;
+  }
+  applyFishPosition();
+
+  fishButton.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    fishButton.setPointerCapture(event.pointerId);
+    const pointerId = event.pointerId;
+    const startX = fishX;
+    const startY = fishY;
+    fishButton.classList.add("habitat-fish-active");
+
+    function onMove(moveEvent: PointerEvent): void {
+      const rect = scene.getBoundingClientRect();
+      const { x, y } = habitatToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+      fishX = clampRange(x, halfWidth, HABITAT_WIDTH - halfWidth);
+      fishY = clampRange(y, halfHeight, HABITAT_HEIGHT - halfHeight);
+      applyFishPosition();
+    }
+
+    function finish(): void {
+      fishButton.removeEventListener("pointermove", onMove);
+      fishButton.removeEventListener("pointerup", onUp);
+      fishButton.removeEventListener("pointercancel", onCancel);
+      if (fishButton.hasPointerCapture(pointerId)) {
+        fishButton.releasePointerCapture(pointerId);
+      }
+      fishButton.classList.remove("habitat-fish-active");
+      dragTracker.current = null;
+    }
+
+    function onUp(): void {
+      finish();
+    }
+
+    function onCancel(): void {
+      fishX = startX;
+      fishY = startY;
+      applyFishPosition();
+      finish();
+    }
+
+    dragTracker.current = onCancel;
+    fishButton.addEventListener("pointermove", onMove);
+    fishButton.addEventListener("pointerup", onUp);
+    fishButton.addEventListener("pointercancel", onCancel);
+  });
+
+  return fishButton;
+}
+
+function buildHabitatInterface(
+  background: HTMLImageElement,
+  fish: HTMLImageElement,
+  dragTracker: HabitatDragTracker,
+): { frame: HTMLElement; attachFish: () => void } {
+  const frame = document.createElement("div");
+  frame.className = "habitat-frame";
+
+  const backgroundImg = document.createElement("img");
+  backgroundImg.src = background.src;
+  backgroundImg.alt = "";
+  backgroundImg.setAttribute("aria-hidden", "true");
+  backgroundImg.className = "habitat-background";
+  frame.appendChild(backgroundImg);
+
+  const scene = document.createElement("div");
+  scene.className = "habitat-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Habitat configuration area.");
+  frame.appendChild(scene);
+
+  const fishAspect = fish.naturalWidth / fish.naturalHeight;
+  const fishWidthNative = (HABITAT_FISH_WIDTH_PERCENT / 100) * HABITAT_WIDTH;
+  const fishHeightNative = fishWidthNative / fishAspect;
+  const halfWidth = fishWidthNative / 2;
+  const halfHeight = fishHeightNative / 2;
+
+  const fishButtons = HABITAT_FISH_INITIAL_POSITIONS.map((pos, index) =>
+    createHabitatFish(
+      scene,
+      fish,
+      `Fish ${index + 1}. Drag to reposition.`,
+      pos.xPercent,
+      pos.yPercent,
+      halfWidth,
+      halfHeight,
+      dragTracker,
+    ),
+  );
+
+  function attachFish(): void {
+    for (const fishButton of fishButtons) {
+      scene.appendChild(fishButton);
+      fishButton.classList.add("task1-reveal-in");
+    }
+  }
+
+  return { frame, attachFish };
+}
+
+function renderHabitatTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runHabitatTaskSequence(h1, terminal, container, nav);
+}
+
+async function runHabitatTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, HABITAT_HEADING);
+  await sleep(300);
+  await typeLine(terminal, HABITAT_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [background, fish] = await Promise.all([loadImage(habitatBackgroundUrl), loadImage(habitatFishUrl)]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null || fish === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const dragTracker: HabitatDragTracker = { current: null };
+  const { frame, attachFish } = buildHabitatInterface(background, fish, dragTracker);
+
+  const workspace = document.createElement("div");
+  workspace.className = "habitat-workspace";
+  container.appendChild(workspace);
+
+  watchHabitatDetachment(workspace, () => {
+    if (dragTracker.current) {
+      dragTracker.current();
+    }
+  });
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  attachFish();
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
+}
+
 const SLEEVE_HEADING = "GARMENT CONFIGURATION";
 const SLEEVE_INSTRUCTION = "Remove unnecessary sleeves.";
 
@@ -2542,7 +2805,7 @@ const FIRST_TASK_INDEX = 2;
 const SEQUENCE: Render[] = [
   renderWelcome,
   renderBriefing,
-  renderTaskPlaceholder(1),
+  renderHabitatTask,
   renderSleeveTask,
   renderTaskPlaceholder(3),
   renderTaskPlaceholder(4),
