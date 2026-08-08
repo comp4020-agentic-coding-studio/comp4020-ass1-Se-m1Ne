@@ -11,6 +11,15 @@ import task5SpringUrl from "./assets/task05-spring.png";
 import task5SummerUrl from "./assets/task05-summer.png";
 import task5AutumnUrl from "./assets/task05-autumn.png";
 import task5WinterUrl from "./assets/task05-winter.png";
+import sleeveBaseTorsoUrl from "./assets/task02-sleeve-base-torso.png";
+import sleeveScissorsUrl from "./assets/task02-sleeve-scissors.png";
+import sleeveDetachedUrl from "./assets/task02-sleeve-detached.png";
+import sleeveLeft01Url from "./assets/task02-sleeve-left-01.png";
+import sleeveLeft02Url from "./assets/task02-sleeve-left-02.png";
+import sleeveLeft03Url from "./assets/task02-sleeve-left-03.png";
+import sleeveRight01Url from "./assets/task02-sleeve-right-01.png";
+import sleeveRight02Url from "./assets/task02-sleeve-right-02.png";
+import sleeveRight03Url from "./assets/task02-sleeve-right-03.png";
 
 interface NavActions {
   next: () => void;
@@ -1849,6 +1858,370 @@ async function runTask5Sequence(
   container.appendChild(nextButton);
 }
 
+const SLEEVE_HEADING = "GARMENT CONFIGURATION";
+const SLEEVE_INSTRUCTION = "Remove unnecessary sleeves.";
+
+const SLEEVE_TORSO_LEFT_PERCENT = 33.359375;
+const SLEEVE_TORSO_WIDTH_PERCENT = 33.28125;
+const SLEEVE_TORSO_RIGHT_PERCENT = SLEEVE_TORSO_LEFT_PERCENT + SLEEVE_TORSO_WIDTH_PERCENT;
+
+const SLEEVE_FRAME_WIDTH = 640;
+const SLEEVE_FRAME_HEIGHT = 360;
+const SLEEVE_NATIVE_WIDTH = 176;
+const SLEEVE_NATIVE_HEIGHT = 49;
+
+const SLEEVE_WIDTH_PERCENT = 38;
+const SLEEVE_HEIGHT_PERCENT =
+  ((SLEEVE_WIDTH_PERCENT / 100) *
+    SLEEVE_FRAME_WIDTH *
+    (SLEEVE_NATIVE_HEIGHT / SLEEVE_NATIVE_WIDTH) *
+    100) /
+  SLEEVE_FRAME_HEIGHT;
+
+const SLEEVE_ROOT_OVERLAP_PERCENT = 5;
+const SLEEVE_LEFT_SIDE_LEFT_PERCENT = SLEEVE_TORSO_LEFT_PERCENT + SLEEVE_ROOT_OVERLAP_PERCENT - SLEEVE_WIDTH_PERCENT;
+const SLEEVE_RIGHT_SIDE_LEFT_PERCENT = SLEEVE_TORSO_RIGHT_PERCENT - SLEEVE_ROOT_OVERLAP_PERCENT;
+const SLEEVE_TOP_PERCENTS = [15, 39, 62];
+
+const SLEEVE_HIT_PAD_X_PERCENT = 3;
+const SLEEVE_HIT_PAD_Y_PERCENT = 1.5;
+const SLEEVE_FALL_DURATION_MS = 600;
+
+type SleeveSide = "left" | "right";
+type SleevePosition = "upper" | "middle" | "lower";
+type SleeveId = "left-01" | "left-02" | "left-03" | "right-01" | "right-02" | "right-03";
+
+interface SleeveDef {
+  id: SleeveId;
+  side: SleeveSide;
+  position: SleevePosition;
+  url: string;
+  leftPercent: number;
+  topPercent: number;
+}
+
+const SLEEVE_DEFS: SleeveDef[] = [
+  {
+    id: "left-01",
+    side: "left",
+    position: "upper",
+    url: sleeveLeft01Url,
+    leftPercent: SLEEVE_LEFT_SIDE_LEFT_PERCENT,
+    topPercent: SLEEVE_TOP_PERCENTS[0],
+  },
+  {
+    id: "left-02",
+    side: "left",
+    position: "middle",
+    url: sleeveLeft02Url,
+    leftPercent: SLEEVE_LEFT_SIDE_LEFT_PERCENT,
+    topPercent: SLEEVE_TOP_PERCENTS[1],
+  },
+  {
+    id: "left-03",
+    side: "left",
+    position: "lower",
+    url: sleeveLeft03Url,
+    leftPercent: SLEEVE_LEFT_SIDE_LEFT_PERCENT,
+    topPercent: SLEEVE_TOP_PERCENTS[2],
+  },
+  {
+    id: "right-01",
+    side: "right",
+    position: "upper",
+    url: sleeveRight01Url,
+    leftPercent: SLEEVE_RIGHT_SIDE_LEFT_PERCENT,
+    topPercent: SLEEVE_TOP_PERCENTS[0],
+  },
+  {
+    id: "right-02",
+    side: "right",
+    position: "middle",
+    url: sleeveRight02Url,
+    leftPercent: SLEEVE_RIGHT_SIDE_LEFT_PERCENT,
+    topPercent: SLEEVE_TOP_PERCENTS[1],
+  },
+  {
+    id: "right-03",
+    side: "right",
+    position: "lower",
+    url: sleeveRight03Url,
+    leftPercent: SLEEVE_RIGHT_SIDE_LEFT_PERCENT,
+    topPercent: SLEEVE_TOP_PERCENTS[2],
+  },
+];
+
+function sleeveHitLabel(def: SleeveDef): string {
+  const side = def.side === "left" ? "Left" : "Right";
+  return `${side} ${def.position} sleeve. Click to remove when scissors are selected.`;
+}
+
+function buildSleeveInterface(
+  torso: HTMLImageElement,
+  scissors: HTMLImageElement,
+  detached: HTMLImageElement,
+  sleeveSprites: Record<SleeveId, HTMLImageElement>,
+): { frame: HTMLElement; controls: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "sleeve-frame";
+  frame.setAttribute("role", "group");
+  frame.setAttribute("aria-label", "Garment. Select the scissors, then click a sleeve to remove it.");
+
+  const torsoImg = document.createElement("img");
+  torsoImg.src = torso.src;
+  torsoImg.alt = "";
+  torsoImg.setAttribute("aria-hidden", "true");
+  torsoImg.className = "sleeve-torso";
+  torsoImg.style.left = `${SLEEVE_TORSO_LEFT_PERCENT}%`;
+  torsoImg.style.width = `${SLEEVE_TORSO_WIDTH_PERCENT}%`;
+  frame.appendChild(torsoImg);
+
+  const attached: Record<SleeveId, boolean> = {
+    "left-01": true,
+    "left-02": true,
+    "left-03": true,
+    "right-01": true,
+    "right-02": true,
+    "right-03": true,
+  };
+
+  const sleeveHits = new Map<SleeveId, HTMLElement>();
+  let scissorsSelected = false;
+
+  const hitWidthPercent = SLEEVE_WIDTH_PERCENT + SLEEVE_HIT_PAD_X_PERCENT * 2;
+  const hitHeightPercent = SLEEVE_HEIGHT_PERCENT + SLEEVE_HIT_PAD_Y_PERCENT * 2;
+  const sleeveImageLeftPercent = (SLEEVE_HIT_PAD_X_PERCENT / hitWidthPercent) * 100;
+  const sleeveImageTopPercent = (SLEEVE_HIT_PAD_Y_PERCENT / hitHeightPercent) * 100;
+  const sleeveImageWidthPercent = (SLEEVE_WIDTH_PERCENT / hitWidthPercent) * 100;
+  const sleeveImageHeightPercent = (SLEEVE_HEIGHT_PERCENT / hitHeightPercent) * 100;
+
+  function spawnFall(def: SleeveDef): void {
+    const fallEl = document.createElement("img");
+    fallEl.src = detached.src;
+    fallEl.alt = "";
+    fallEl.setAttribute("aria-hidden", "true");
+    fallEl.className = `sleeve-detached sleeve-fall-${def.side}`;
+    fallEl.style.left = `${def.leftPercent}%`;
+    fallEl.style.top = `${def.topPercent}%`;
+    fallEl.style.width = `${SLEEVE_WIDTH_PERCENT}%`;
+    fallEl.style.height = `${SLEEVE_HEIGHT_PERCENT}%`;
+    frame.appendChild(fallEl);
+
+    let removed = false;
+    function removeFallEl(): void {
+      if (removed) {
+        return;
+      }
+      removed = true;
+      fallEl.remove();
+    }
+    fallEl.addEventListener("animationend", removeFallEl, { once: true });
+    setTimeout(removeFallEl, SLEEVE_FALL_DURATION_MS + 200);
+  }
+
+  function cutSleeve(id: SleeveId): void {
+    if (!attached[id]) {
+      return;
+    }
+    attached[id] = false;
+    const hit = sleeveHits.get(id);
+    if (hit) {
+      hit.remove();
+      sleeveHits.delete(id);
+    }
+    const def = SLEEVE_DEFS.find((d) => d.id === id);
+    if (def) {
+      spawnFall(def);
+    }
+  }
+
+  for (const def of SLEEVE_DEFS) {
+    const sprite = sleeveSprites[def.id];
+
+    const hit = document.createElement("button");
+    hit.type = "button";
+    hit.className = "sleeve-hit";
+    hit.setAttribute("aria-label", sleeveHitLabel(def));
+    hit.style.left = `${def.leftPercent - SLEEVE_HIT_PAD_X_PERCENT}%`;
+    hit.style.top = `${def.topPercent - SLEEVE_HIT_PAD_Y_PERCENT}%`;
+    hit.style.width = `${hitWidthPercent}%`;
+    hit.style.height = `${hitHeightPercent}%`;
+
+    const img = document.createElement("img");
+    img.src = sprite.src;
+    img.alt = "";
+    img.setAttribute("aria-hidden", "true");
+    img.className = "sleeve-item";
+    img.style.left = `${sleeveImageLeftPercent}%`;
+    img.style.top = `${sleeveImageTopPercent}%`;
+    img.style.width = `${sleeveImageWidthPercent}%`;
+    img.style.height = `${sleeveImageHeightPercent}%`;
+    hit.appendChild(img);
+
+    hit.addEventListener("click", () => {
+      if (!scissorsSelected) {
+        return;
+      }
+      cutSleeve(def.id);
+    });
+
+    frame.appendChild(hit);
+    sleeveHits.set(def.id, hit);
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "sleeve-controls";
+
+  const tool = document.createElement("button");
+  tool.type = "button";
+  tool.className = "sleeve-tool";
+  tool.setAttribute("aria-pressed", "false");
+  tool.setAttribute("aria-label", "Scissors. Select the cutting tool.");
+
+  const toolImage = document.createElement("img");
+  toolImage.src = scissors.src;
+  toolImage.alt = "";
+  toolImage.setAttribute("aria-hidden", "true");
+  toolImage.className = "sleeve-tool-image";
+  tool.appendChild(toolImage);
+
+  const toolLabel = document.createElement("span");
+  toolLabel.className = "sleeve-tool-label";
+  toolLabel.textContent = "SCISSORS";
+  tool.appendChild(toolLabel);
+
+  tool.addEventListener("click", () => {
+    scissorsSelected = !scissorsSelected;
+    tool.setAttribute("aria-pressed", String(scissorsSelected));
+    tool.classList.toggle("sleeve-tool-active", scissorsSelected);
+    frame.classList.toggle("sleeve-scissors-active", scissorsSelected);
+    frame.style.cursor = scissorsSelected ? `url("${scissors.src}") 92 16, pointer` : "";
+  });
+
+  controls.appendChild(tool);
+
+  return { frame, controls };
+}
+
+function renderSleeveTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runSleeveTaskSequence(h1, terminal, container, nav);
+}
+
+async function runSleeveTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      return;
+    }
+    skipCurrentTyping();
+  }
+  function onClick(): void {
+    skipCurrentTyping();
+  }
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("click", onClick);
+
+  await typeText(h1, SLEEVE_HEADING);
+  await sleep(300);
+  await typeLine(terminal, SLEEVE_INSTRUCTION);
+  await sleep(400);
+
+  document.removeEventListener("keydown", onKeyDown);
+  document.removeEventListener("click", onClick);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [torso, scissors, detached, left01, left02, left03, right01, right02, right03] = await Promise.all([
+    loadImage(sleeveBaseTorsoUrl),
+    loadImage(sleeveScissorsUrl),
+    loadImage(sleeveDetachedUrl),
+    loadImage(sleeveLeft01Url),
+    loadImage(sleeveLeft02Url),
+    loadImage(sleeveLeft03Url),
+    loadImage(sleeveRight01Url),
+    loadImage(sleeveRight02Url),
+    loadImage(sleeveRight03Url),
+  ]);
+
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (
+    torso === null ||
+    scissors === null ||
+    detached === null ||
+    left01 === null ||
+    left02 === null ||
+    left03 === null ||
+    right01 === null ||
+    right02 === null ||
+    right03 === null
+  ) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const sleeveSprites: Record<SleeveId, HTMLImageElement> = {
+    "left-01": left01,
+    "left-02": left02,
+    "left-03": left03,
+    "right-01": right01,
+    "right-02": right02,
+    "right-03": right03,
+  };
+
+  const { frame, controls } = buildSleeveInterface(torso, scissors, detached, sleeveSprites);
+
+  const workspace = document.createElement("div");
+  workspace.className = "sleeve-workspace";
+  container.appendChild(workspace);
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.textContent = "CONFIRM";
+  nextButton.className = `task1-reveal-in ${SYSTEM_ACTION_PRIMARY}`;
+  nextButton.addEventListener("click", nav.next);
+  container.appendChild(nextButton);
+}
+
 const CHOICE_LINES = [
   "> The environment has been aligned.",
   "",
@@ -2170,7 +2543,7 @@ const SEQUENCE: Render[] = [
   renderWelcome,
   renderBriefing,
   renderTaskPlaceholder(1),
-  renderTaskPlaceholder(2),
+  renderSleeveTask,
   renderTaskPlaceholder(3),
   renderTaskPlaceholder(4),
   renderTask4,

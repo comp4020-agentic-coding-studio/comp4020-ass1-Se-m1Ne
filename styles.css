@@ -833,6 +833,136 @@ h1:focus-visible {
   }
 }
 
+.sleeve-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.5rem;
+  max-width: calc(1050px + 1.5rem + 13rem);
+  margin-top: -0.5rem;
+}
+
+.sleeve-frame {
+  position: relative;
+  width: min(100%, 1050px, calc((100vh - 18rem) * 16 / 9));
+  aspect-ratio: 640 / 360;
+  border: 1px solid #56626d;
+  overflow: hidden;
+}
+
+.sleeve-torso {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.sleeve-hit {
+  position: absolute;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.sleeve-hit:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.sleeve-scissors-active .sleeve-hit {
+  cursor: inherit;
+}
+
+.sleeve-item {
+  position: absolute;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.sleeve-detached {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.sleeve-fall-left {
+  animation: sleeve-fall-left 600ms ease-in forwards;
+}
+
+.sleeve-fall-right {
+  animation: sleeve-fall-right 600ms ease-in forwards;
+}
+
+@keyframes sleeve-fall-left {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-40%, 140%) rotate(-14deg);
+  }
+}
+
+@keyframes sleeve-fall-right {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate(40%, 140%) rotate(14deg);
+  }
+}
+
+.sleeve-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+  align-self: start;
+  max-width: 13rem;
+}
+
+.sleeve-tool {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sleeve-tool-image {
+  width: auto;
+  height: 2.4rem;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.sleeve-tool-label {
+  letter-spacing: 0.02em;
+}
+
+.sleeve-tool-active {
+  border-color: #7e9e99;
+  background: #1b2127;
+}
+
+@media (width <= 768px) {
+  .sleeve-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .sleeve-controls {
+    max-width: none;
+    flex-flow: row wrap;
+  }
+}
+
 .system-action {
   position: absolute;
   bottom: clamp(1.5rem, 4vh, 3rem);
