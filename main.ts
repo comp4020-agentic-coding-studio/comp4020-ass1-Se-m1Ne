@@ -37,6 +37,9 @@ import flowerBackgroundUrl from "./assets/task09-flower-placement-background.png
 import flowerSpriteUrl from "./assets/task09-flower.png";
 import horizonGrassBackgroundUrl from "./assets/task11-full-grass-background-v1.png";
 import sunsetBackgroundUrl from "./assets/task13-sunset-complete-background-v2.png";
+import meteorInitialUrl from "./assets/task14-dinosaur-watching-meteors-clinical.png";
+import meteorYesUrl from "./assets/task14-dinosaur-watching-meteors-clinical-yes.png";
+import meteorNoUrl from "./assets/task14-dinosaur-watching-meteors-clinical-no.png";
 
 interface NavActions {
   next: () => void;
@@ -4673,6 +4676,239 @@ async function runSunsetTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+type MeteorPreferenceChoice = "yes" | "no" | null;
+
+interface MeteorPreferenceState {
+  choice: MeteorPreferenceChoice;
+}
+
+const METEOR_HEADING = "METEOR PREFERENCE";
+const METEOR_STATEMENT = "Dinosaurs like watching meteor showers.";
+
+function meteorImageUrlForChoice(
+  choice: MeteorPreferenceChoice,
+  images: { initial: HTMLImageElement; yes: HTMLImageElement; no: HTMLImageElement },
+): string {
+  if (choice === "yes") {
+    return images.yes.src;
+  }
+  if (choice === "no") {
+    return images.no.src;
+  }
+  return images.initial.src;
+}
+
+function buildMeteorInterface(
+  images: { initial: HTMLImageElement; yes: HTMLImageElement; no: HTMLImageElement },
+  initialChoice: MeteorPreferenceChoice,
+  onChange: (choice: MeteorPreferenceChoice) => void,
+): { scene: HTMLElement; controls: HTMLElement } {
+  let visibleIndex = 0;
+  let choice: MeteorPreferenceChoice = initialChoice;
+
+  const scene = document.createElement("div");
+  scene.className = "meteor-scene";
+  scene.setAttribute("role", "img");
+  scene.setAttribute("aria-label", "Dinosaur watching the night sky.");
+
+  const layerA = document.createElement("img");
+  layerA.className = "meteor-layer";
+  layerA.alt = "";
+  layerA.setAttribute("aria-hidden", "true");
+
+  const layerB = document.createElement("img");
+  layerB.className = "meteor-layer";
+  layerB.alt = "";
+  layerB.setAttribute("aria-hidden", "true");
+
+  const layers = [layerA, layerB];
+  layerA.src = meteorImageUrlForChoice(initialChoice, images);
+  layerA.classList.add("meteor-layer-visible");
+
+  scene.append(layerA, layerB);
+
+  function meteorPrefersReducedMotion(): boolean {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  let pendingWipeCleanup: (() => void) | null = null;
+
+  function finalizePendingWipe(): void {
+    if (pendingWipeCleanup) {
+      const cleanup = pendingWipeCleanup;
+      pendingWipeCleanup = null;
+      cleanup();
+    }
+  }
+
+  function showChoice(nextChoice: MeteorPreferenceChoice, useWipe: boolean): void {
+    finalizePendingWipe();
+
+    const targetUrl = meteorImageUrlForChoice(nextChoice, images);
+    const nextIndex = 1 - visibleIndex;
+    const nextLayer = layers[nextIndex];
+    const currentLayer = layers[visibleIndex];
+    nextLayer.src = targetUrl;
+
+    if (useWipe && !meteorPrefersReducedMotion()) {
+      nextLayer.style.transition = "none";
+      nextLayer.classList.remove("meteor-layer-wipe");
+      nextLayer.style.clipPath = "inset(0 0 100% 0)";
+      nextLayer.classList.add("meteor-layer-visible");
+      void nextLayer.offsetWidth;
+      nextLayer.style.transition = "";
+      nextLayer.classList.add("meteor-layer-wipe");
+
+      const rafId = requestAnimationFrame(() => {
+        nextLayer.style.clipPath = "inset(0 0 0% 0)";
+      });
+
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.target !== nextLayer || event.propertyName !== "clip-path") {
+          return;
+        }
+        cleanup();
+      };
+
+      const cleanup = () => {
+        cancelAnimationFrame(rafId);
+        nextLayer.removeEventListener("transitionend", onTransitionEnd);
+        nextLayer.classList.remove("meteor-layer-wipe");
+        nextLayer.style.clipPath = "";
+        currentLayer.classList.remove("meteor-layer-visible");
+        pendingWipeCleanup = null;
+      };
+
+      nextLayer.addEventListener("transitionend", onTransitionEnd);
+      pendingWipeCleanup = cleanup;
+    } else {
+      nextLayer.style.clipPath = "";
+      nextLayer.classList.remove("meteor-layer-wipe");
+      nextLayer.classList.add("meteor-layer-visible");
+      currentLayer.classList.remove("meteor-layer-visible");
+    }
+
+    visibleIndex = nextIndex;
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "meteor-choices";
+
+  const yesButton = document.createElement("button");
+  yesButton.type = "button";
+  yesButton.className = "meteor-choice-button";
+  yesButton.textContent = "YES";
+
+  const noButton = document.createElement("button");
+  noButton.type = "button";
+  noButton.className = "meteor-choice-button";
+  noButton.textContent = "NO";
+
+  function updateButtons(): void {
+    yesButton.setAttribute("aria-pressed", String(choice === "yes"));
+    noButton.setAttribute("aria-pressed", String(choice === "no"));
+  }
+  updateButtons();
+
+  yesButton.addEventListener("click", () => {
+    const alreadyYes = choice === "yes";
+    choice = "yes";
+    updateButtons();
+    if (!alreadyYes) {
+      showChoice(choice, true);
+    }
+    onChange(choice);
+  });
+  noButton.addEventListener("click", () => {
+    const alreadyNo = choice === "no";
+    choice = "no";
+    updateButtons();
+    if (!alreadyNo) {
+      showChoice(choice, false);
+    }
+    onChange(choice);
+  });
+
+  controls.append(yesButton, noButton);
+
+  return { scene, controls };
+}
+
+function renderMeteorTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runMeteorTaskSequence(h1, terminal, container, nav);
+}
+
+async function runMeteorTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, METEOR_HEADING, METEOR_STATEMENT, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const [initialImage, yesImage, noImage] = await Promise.all([
+    loadImage(meteorInitialUrl),
+    loadImage(meteorYesUrl),
+    loadImage(meteorNoUrl),
+  ]);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (initialImage === null || yesImage === null || noImage === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const initialChoice = taskSession.meteor?.choice ?? null;
+  const { scene, controls } = buildMeteorInterface(
+    { initial: initialImage, yes: yesImage, no: noImage },
+    initialChoice,
+    (choice) => {
+      taskSession.meteor = { choice };
+    },
+  );
+
+  const workspace = document.createElement("div");
+  workspace.className = "meteor-workspace";
+  container.appendChild(workspace);
+
+  scene.classList.add("task1-reveal-in");
+  workspace.appendChild(scene);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -4687,6 +4923,7 @@ const LIGHT_SPEED_INDEX = 11;
 const HORIZON_INDEX = 12;
 const TASK1_INDEX = 13;
 const SUNSET_INDEX = 14;
+const METEOR_INDEX = 15;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -4699,6 +4936,7 @@ interface TaskSession {
   horizon: HorizonTaskState | null;
   task1: Task1SkyState | null;
   sunset: SunsetTaskState | null;
+  meteor: MeteorPreferenceState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -4715,6 +4953,7 @@ const taskSession: TaskSession = {
   horizon: null,
   task1: null,
   sunset: null,
+  meteor: null,
   task2: null,
   task3: null,
   task4: null,
@@ -4764,6 +5003,9 @@ function resetTaskState(index: number): void {
     case SUNSET_INDEX:
       taskSession.sunset = null;
       break;
+    case METEOR_INDEX:
+      taskSession.meteor = null;
+      break;
     default:
       break;
   }
@@ -4779,6 +5021,7 @@ function restartExperience(): void {
   taskSession.horizon = null;
   taskSession.task1 = null;
   taskSession.sunset = null;
+  taskSession.meteor = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -4803,7 +5046,7 @@ const SEQUENCE: Render[] = [
   renderHorizonTask,
   renderTask1,
   renderSunsetTask,
-  renderTaskPlaceholder(14),
+  renderMeteorTask,
   renderTaskPlaceholder(15),
   renderTaskPlaceholder(16),
   renderTaskPlaceholder(17),
