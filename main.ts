@@ -36,6 +36,7 @@ import shadowTreeUrl from "./assets/task04-tree-shadow.png";
 import flowerBackgroundUrl from "./assets/task09-flower-placement-background.png";
 import flowerSpriteUrl from "./assets/task09-flower.png";
 import horizonGrassBackgroundUrl from "./assets/task11-full-grass-background-v1.png";
+import sunsetBackgroundUrl from "./assets/task13-sunset-complete-background-v2.png";
 
 interface NavActions {
   next: () => void;
@@ -4431,6 +4432,247 @@ async function runHorizonTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+type SunsetChoice = "yes" | "no" | null;
+
+interface SunsetTaskState {
+  choice: SunsetChoice;
+}
+
+const SUNSET_HEADING = "SUNSET PERSISTENCE";
+const SUNSET_INSTRUCTION = "Can you still see the sunset in 800 years?";
+
+const SUNSET_SCENE_WIDTH = 640;
+const SUNSET_SCENE_HEIGHT = 360;
+
+const SUNSET_EYELID_CURVE_AMPLITUDE = 22;
+const SUNSET_EYELID_OVERLAP_MARGIN = 12;
+const SUNSET_EYELID_OFFCANVAS_TOP = -60;
+const SUNSET_EYELID_OFFCANVAS_BOTTOM = SUNSET_SCENE_HEIGHT + 60;
+const SUNSET_TRANSITION_MS = 900;
+
+function sunsetLerp(from: number, to: number, t: number): number {
+  return from + (to - from) * t;
+}
+
+function sunsetEaseInOutQuad(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function buildEyelidPath(edgeYAt: (x: number) => number, offCanvasY: number): string {
+  const steps = 24;
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const x = (i / steps) * SUNSET_SCENE_WIDTH;
+    points.push({ x, y: edgeYAt(x) });
+  }
+  const last = points[points.length - 1];
+  let d = `M 0 ${offCanvasY} L ${SUNSET_SCENE_WIDTH} ${offCanvasY} L ${last.x} ${last.y}`;
+  for (let i = points.length - 2; i >= 0; i -= 1) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+  d += " Z";
+  return d;
+}
+
+function buildSunsetEyelidPaths(progress: number): { topPath: string; bottomPath: string } {
+  const centerY = SUNSET_SCENE_HEIGHT / 2;
+  const topBaseY = sunsetLerp(-40, centerY + SUNSET_EYELID_OVERLAP_MARGIN, progress);
+  const bottomBaseY = sunsetLerp(SUNSET_SCENE_HEIGHT + 40, centerY - SUNSET_EYELID_OVERLAP_MARGIN, progress);
+
+  const topPath = buildEyelidPath(
+    (x) => topBaseY + SUNSET_EYELID_CURVE_AMPLITUDE * Math.sin((Math.PI * x) / SUNSET_SCENE_WIDTH),
+    SUNSET_EYELID_OFFCANVAS_TOP,
+  );
+  const bottomPath = buildEyelidPath(
+    (x) => bottomBaseY - SUNSET_EYELID_CURVE_AMPLITUDE * Math.sin((Math.PI * x) / SUNSET_SCENE_WIDTH),
+    SUNSET_EYELID_OFFCANVAS_BOTTOM,
+  );
+
+  return { topPath, bottomPath };
+}
+
+function buildSunsetInterface(
+  background: HTMLImageElement,
+  initialChoice: SunsetChoice,
+  onChange: (choice: SunsetChoice) => void,
+): { scene: HTMLElement; controls: HTMLElement } {
+  let choice: SunsetChoice = initialChoice;
+  let progress = choice === "no" ? 1 : 0;
+  let animationToken = 0;
+
+  const scene = document.createElement("div");
+  scene.className = "sunset-scene";
+  scene.setAttribute("role", "img");
+  scene.setAttribute("aria-label", "Sunset scene.");
+
+  const image = document.createElement("img");
+  image.src = background.src;
+  image.alt = "";
+  image.setAttribute("aria-hidden", "true");
+  image.className = "sunset-background";
+  scene.appendChild(image);
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("class", "sunset-eyelid-overlay");
+  svg.setAttribute("viewBox", `0 0 ${SUNSET_SCENE_WIDTH} ${SUNSET_SCENE_HEIGHT}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+
+  const topEyelid = document.createElementNS(svgNS, "path");
+  topEyelid.setAttribute("class", "sunset-eyelid-top");
+  const bottomEyelid = document.createElementNS(svgNS, "path");
+  bottomEyelid.setAttribute("class", "sunset-eyelid-bottom");
+  svg.append(topEyelid, bottomEyelid);
+  scene.appendChild(svg);
+
+  function redraw(p: number): void {
+    const { topPath, bottomPath } = buildSunsetEyelidPaths(p);
+    topEyelid.setAttribute("d", topPath);
+    bottomEyelid.setAttribute("d", bottomPath);
+  }
+  redraw(progress);
+
+  const controls = document.createElement("div");
+  controls.className = "sunset-choices";
+
+  const yesButton = document.createElement("button");
+  yesButton.type = "button";
+  yesButton.className = "sunset-choice-button";
+  yesButton.textContent = "YES";
+
+  const noButton = document.createElement("button");
+  noButton.type = "button";
+  noButton.className = "sunset-choice-button";
+  noButton.textContent = "NO";
+
+  function updateButtons(): void {
+    yesButton.setAttribute("aria-pressed", String(choice === "yes"));
+    noButton.setAttribute("aria-pressed", String(choice === "no"));
+  }
+  updateButtons();
+
+  function prefersReducedMotion(): boolean {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function animateTo(target: number): void {
+    animationToken += 1;
+    const token = animationToken;
+    const start = progress;
+    const delta = target - start;
+    if (delta === 0) {
+      return;
+    }
+    const startTime = performance.now();
+    function frame(now: number): void {
+      if (token !== animationToken) {
+        return;
+      }
+      const t = Math.min(1, (now - startTime) / SUNSET_TRANSITION_MS);
+      progress = start + delta * sunsetEaseInOutQuad(t);
+      redraw(progress);
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function applyChoice(nextChoice: SunsetChoice, animate: boolean): void {
+    choice = nextChoice;
+    updateButtons();
+    const target = choice === "no" ? 1 : 0;
+    if (!animate || prefersReducedMotion()) {
+      animationToken += 1;
+      progress = target;
+      redraw(progress);
+    } else {
+      animateTo(target);
+    }
+  }
+
+  yesButton.addEventListener("click", () => {
+    applyChoice("yes", true);
+    onChange("yes");
+  });
+  noButton.addEventListener("click", () => {
+    applyChoice("no", true);
+    onChange("no");
+  });
+
+  controls.append(yesButton, noButton);
+
+  return { scene, controls };
+}
+
+function renderSunsetTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runSunsetTaskSequence(h1, terminal, container, nav);
+}
+
+async function runSunsetTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, SUNSET_HEADING, SUNSET_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const background = await loadImage(sunsetBackgroundUrl);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (background === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const initialChoice = taskSession.sunset?.choice ?? null;
+  const { scene, controls } = buildSunsetInterface(background, initialChoice, (choice) => {
+    taskSession.sunset = { choice };
+  });
+
+  const workspace = document.createElement("div");
+  workspace.className = "sunset-workspace";
+  container.appendChild(workspace);
+
+  scene.classList.add("task1-reveal-in");
+  workspace.appendChild(scene);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  controls.classList.add("task1-reveal-in");
+  workspace.appendChild(controls);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -4444,6 +4686,7 @@ const FLOWER_INDEX = 10;
 const LIGHT_SPEED_INDEX = 11;
 const HORIZON_INDEX = 12;
 const TASK1_INDEX = 13;
+const SUNSET_INDEX = 14;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -4455,6 +4698,7 @@ interface TaskSession {
   lightSpeed: LightSpeedTaskState | null;
   horizon: HorizonTaskState | null;
   task1: Task1SkyState | null;
+  sunset: SunsetTaskState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -4470,6 +4714,7 @@ const taskSession: TaskSession = {
   lightSpeed: null,
   horizon: null,
   task1: null,
+  sunset: null,
   task2: null,
   task3: null,
   task4: null,
@@ -4516,6 +4761,9 @@ function resetTaskState(index: number): void {
     case TASK1_INDEX:
       taskSession.task1 = null;
       break;
+    case SUNSET_INDEX:
+      taskSession.sunset = null;
+      break;
     default:
       break;
   }
@@ -4530,6 +4778,7 @@ function restartExperience(): void {
   taskSession.lightSpeed = null;
   taskSession.horizon = null;
   taskSession.task1 = null;
+  taskSession.sunset = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -4553,7 +4802,7 @@ const SEQUENCE: Render[] = [
   renderLightSpeedTask,
   renderHorizonTask,
   renderTask1,
-  renderTaskPlaceholder(13),
+  renderSunsetTask,
   renderTaskPlaceholder(14),
   renderTaskPlaceholder(15),
   renderTaskPlaceholder(16),
