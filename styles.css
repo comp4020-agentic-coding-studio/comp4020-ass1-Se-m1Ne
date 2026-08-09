@@ -1577,19 +1577,36 @@ h1:focus-visible {
   user-select: none;
 }
 
-.location-hierarchy-final {
-  display: inline-flex;
-  align-items: center;
+.location-hierarchy-final-anchor {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  overflow: hidden;
 }
 
-.location-redacted-viewport-extension {
+.location-redaction-overlay {
   position: fixed;
   top: 0;
   left: 0;
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.location-redaction-mark {
+  color: #56626d;
+  font-family: inherit;
+  font-size: clamp(1.6rem, 2vw, 2rem);
+  user-select: none;
+  white-space: pre;
+}
+
+.location-redacted-viewport-extension {
   width: 5000vw;
   min-width: 5000vw;
   height: 0.9rem;
-  transform: translateY(-50%);
   background: repeating-linear-gradient(
     90deg,
     #56626d 0,
@@ -1598,8 +1615,7 @@ h1:focus-visible {
     transparent 0.85rem
   );
   opacity: 0.6;
-  pointer-events: none;
-  z-index: 1;
+  clip-path: inset(0 100% 0 0);
 }
 
 @media (width <= 768px) {

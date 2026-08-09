@@ -83,7 +83,7 @@ async function runTaskIntro(
     h1.textContent = headingText;
     const line = document.createElement("div");
     line.className = "term-line";
-    line.textContent = instructionText;
+    line.textContent = `> ${instructionText}`;
     terminal.appendChild(line);
     return;
   }
@@ -100,9 +100,9 @@ async function runTaskIntro(
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("click", onClick);
 
-  await typeText(h1, headingText);
+  await typeText(h1, headingText, undefined, TASK_HEADING_CHAR_DELAY_MS);
   await sleep(300);
-  await typeLine(terminal, instructionText);
+  await typeLine(terminal, `> ${instructionText}`, TASK_INSTRUCTION_CHAR_DELAY_MS);
   await sleep(400);
 
   document.removeEventListener("keydown", onKeyDown);
@@ -112,11 +112,12 @@ async function runTaskIntro(
 function addTaskNavControls(
   container: HTMLElement,
   nav: NavActions,
-): { redoButton: HTMLButtonElement; confirmButton: HTMLButtonElement } {
+): { redoButton: HTMLButtonElement; confirmButton: HTMLButtonElement; backButton: HTMLButtonElement | null } {
   const group = document.createElement("div");
   group.className = "task-action-group task1-reveal-in";
   container.appendChild(group);
 
+  let backButton: HTMLButtonElement | null = null;
   if (nav.hasPrevious) {
     const back = document.createElement("button");
     back.type = "button";
@@ -125,6 +126,7 @@ function addTaskNavControls(
     back.setAttribute("aria-label", "Previous task");
     back.addEventListener("click", nav.previous);
     group.appendChild(back);
+    backButton = back;
   }
 
   const redoButton = document.createElement("button");
@@ -141,7 +143,7 @@ function addTaskNavControls(
   confirmButton.addEventListener("click", nav.next);
   group.appendChild(confirmButton);
 
-  return { redoButton, confirmButton };
+  return { redoButton, confirmButton, backButton };
 }
 
 function renderWelcome(container: HTMLElement, nav: NavActions): void {
@@ -204,9 +206,9 @@ function renderWelcome(container: HTMLElement, nav: NavActions): void {
 }
 
 const BRIEFING_LINES = [
-  "Some parts of the following environment may not reflect the world as you know it.",
-  "Proceed through each stage using your own judgement.",
-  "Instructions for each task will be provided individually.",
+  "The following tasks will present a series of environment parameters and conditions.",
+  "Interact with each according to the instructions provided.",
+  "Use your own judgement where required.",
 ];
 
 async function runTypedTerminalSequence(
@@ -2658,7 +2660,9 @@ function waitForEscape(): Promise<void> {
   });
 }
 
-const TYPE_CHAR_MS = 80;
+const TERMINAL_CHAR_DELAY_MS = 54;
+const TASK_INSTRUCTION_CHAR_DELAY_MS = 70;
+const TASK_HEADING_CHAR_DELAY_MS = 74;
 
 let activeTypeSkip: (() => void) | null = null;
 
@@ -2666,7 +2670,12 @@ function skipCurrentTyping(): void {
   activeTypeSkip?.();
 }
 
-function typeText(el: HTMLElement, text: string, isCancelled?: () => boolean): Promise<void> {
+function typeText(
+  el: HTMLElement,
+  text: string,
+  isCancelled?: () => boolean,
+  delayMs: number = TERMINAL_CHAR_DELAY_MS,
+): Promise<void> {
   if (text.length === 0) {
     return Promise.resolve();
   }
@@ -2704,20 +2713,20 @@ function typeText(el: HTMLElement, text: string, isCancelled?: () => boolean): P
       i += 1;
       el.textContent = text.slice(0, i);
       if (i < text.length) {
-        setTimeout(typeNext, TYPE_CHAR_MS);
+        setTimeout(typeNext, delayMs);
       } else {
         finish();
       }
     }
-    setTimeout(typeNext, TYPE_CHAR_MS);
+    setTimeout(typeNext, delayMs);
   });
 }
 
-function typeLine(terminal: HTMLElement, text: string): Promise<HTMLElement> {
+function typeLine(terminal: HTMLElement, text: string, delayMs?: number): Promise<HTMLElement> {
   const line = document.createElement("div");
   line.className = "term-line";
   terminal.appendChild(line);
-  return typeText(line, text).then(() => line);
+  return typeText(line, text, undefined, delayMs).then(() => line);
 }
 
 function createCursor(): HTMLElement {
@@ -2822,7 +2831,7 @@ function createSystemWindow(
   return { root, body };
 }
 
-async function runAlignmentSequence(terminal: HTMLElement, windowsLayer: HTMLElement, nav: NavActions): Promise<void> {
+async function runRealityAlignmentSequence(terminal: HTMLElement, nav: NavActions): Promise<void> {
   await typeLine(terminal, "REALITY ALIGNMENT");
   await sleep(300);
   await runTerminalStep(terminal, "Checking reality consistency...", 1650);
@@ -2833,9 +2842,24 @@ async function runAlignmentSequence(terminal: HTMLElement, windowsLayer: HTMLEle
   await sleep(400);
   await typeLine(terminal, "Reality Alignment Complete.");
   await typeLine(terminal, "Current environment verified.");
-  await sleep(800);
+  await sleep(1400);
+  nav.next();
+}
 
-  await typeLine(terminal, "");
+function renderRealityAlignment(container: HTMLElement, nav: NavActions): void {
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runRealityAlignmentSequence(terminal, nav);
+}
+
+async function runExternalRealityVerificationSequence(
+  terminal: HTMLElement,
+  windowsLayer: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
   await typeLine(terminal, "> Initiating external reality verification...");
   await sleep(600);
   await typeLine(terminal, "> Checking external reality...");
@@ -2879,7 +2903,7 @@ async function runAlignmentSequence(terminal: HTMLElement, windowsLayer: HTMLEle
   nav.restart();
 }
 
-function renderReflection(container: HTMLElement, nav: NavActions): void {
+function renderExternalRealityVerification(container: HTMLElement, nav: NavActions): void {
   const terminal = document.createElement("div");
   terminal.className = "align-terminal";
   terminal.setAttribute("aria-live", "polite");
@@ -2890,7 +2914,7 @@ function renderReflection(container: HTMLElement, nav: NavActions): void {
   windowsLayer.setAttribute("aria-live", "polite");
   container.appendChild(windowsLayer);
 
-  void runAlignmentSequence(terminal, windowsLayer, nav);
+  void runExternalRealityVerificationSequence(terminal, windowsLayer, nav);
 }
 
 const FACE_HEADING = "FACE CONFIGURATION";
@@ -5332,29 +5356,34 @@ function buildLocationHierarchyInterface(
     }
   }
 
-  const finalGroup = document.createElement("span");
-  finalGroup.className = "location-hierarchy-final";
+  // Zero-width, never mutated: the redaction/mark render into a fixed-position
+  // overlay instead, so their appearance never changes this anchor's box size
+  // and never shifts the row's centring.
+  const anchor = document.createElement("span");
+  anchor.className = "location-hierarchy-final-anchor";
+  anchor.setAttribute("aria-hidden", "true");
+  row.appendChild(anchor);
 
-  const finalSeparator = document.createElement("span");
-  finalSeparator.className = "location-hierarchy-separator";
-  finalSeparator.textContent = "<";
-  finalSeparator.setAttribute("aria-hidden", "true");
-  finalGroup.appendChild(finalSeparator);
-
-  row.appendChild(finalGroup);
-
-  return { row, anchor: finalGroup };
+  return { row, anchor };
 }
 
-function attachLocationRedactionOverlay(anchor: HTMLElement, watchNode: HTMLElement): void {
+function attachLocationRedactionOverlay(anchor: HTMLElement, watchNode: HTMLElement): { mark: HTMLElement; bar: HTMLElement } {
   const overlay = document.createElement("div");
-  overlay.className = "location-redacted-viewport-extension";
+  overlay.className = "location-redaction-overlay";
   overlay.setAttribute("aria-hidden", "true");
   document.body.appendChild(overlay);
 
+  const mark = document.createElement("span");
+  mark.className = "location-redaction-mark";
+  overlay.appendChild(mark);
+
+  const bar = document.createElement("span");
+  bar.className = "location-redacted-viewport-extension";
+  overlay.appendChild(bar);
+
   function reposition(): void {
     const rect = anchor.getBoundingClientRect();
-    overlay.style.left = `${rect.right}px`;
+    overlay.style.left = `${rect.left}px`;
     overlay.style.top = `${rect.top + rect.height / 2}px`;
   }
 
@@ -5366,6 +5395,8 @@ function attachLocationRedactionOverlay(anchor: HTMLElement, watchNode: HTMLElem
     window.removeEventListener("resize", reposition);
     overlay.remove();
   });
+
+  return { mark, bar };
 }
 
 function renderLocationHierarchyTask(container: HTMLElement, nav: NavActions): void {
@@ -5411,9 +5442,57 @@ async function runLocationHierarchyTaskSequence(
     return;
   }
 
-  attachLocationRedactionOverlay(anchor, workspace);
+  const { redoButton, confirmButton, backButton } = addTaskNavControls(container, nav);
+  confirmButton.removeEventListener("click", nav.next);
 
-  addTaskNavControls(container, nav);
+  let isFinalizing = false;
+  confirmButton.addEventListener("click", () => {
+    if (isFinalizing) {
+      return;
+    }
+    isFinalizing = true;
+    confirmButton.disabled = true;
+    redoButton.disabled = true;
+    if (backButton) {
+      backButton.disabled = true;
+    }
+    void finalizeLocationHierarchy(anchor, workspace, terminal, nav);
+  });
+}
+
+async function finalizeLocationHierarchy(
+  anchor: HTMLElement,
+  workspace: HTMLElement,
+  terminal: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  const { mark, bar } = attachLocationRedactionOverlay(anchor, workspace);
+
+  await typeText(mark, "<", undefined, TERMINAL_CHAR_DELAY_MS);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  // Step the redaction reveal in discrete block-cell increments, one per terminal
+  // character interval, driven directly in JS so the reveal is visibly incremental
+  // rather than relying on a CSS transition's rendering of a stepped easing curve —
+  // while still animating only the visible span, not typing the (effectively
+  // infinite) redaction character-by-character.
+  const rootFontSizePx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const redactionUnitPx = 0.85 * rootFontSizePx;
+  const visibleDistancePx = Math.max(window.innerWidth - bar.getBoundingClientRect().left, 0);
+  const visibleBlockCount = Math.max(Math.ceil(visibleDistancePx / redactionUnitPx), 1);
+
+  for (let step = 1; step <= visibleBlockCount; step += 1) {
+    const revealedPercent = (step / visibleBlockCount) * 100;
+    bar.style.clipPath = `inset(0 ${100 - revealedPercent}% 0 0)`;
+    await sleep(TERMINAL_CHAR_DELAY_MS);
+    if (!terminal.isConnected) {
+      return;
+    }
+  }
+
+  nav.next();
 }
 
 const REALITY_REFERENCE_HEADING = "REALITY REFERENCE";
@@ -6229,7 +6308,8 @@ const SEQUENCE: Render[] = [
   renderObjectContinuityTask,
   renderViewpointTask,
   renderChoice,
-  renderReflection,
+  renderRealityAlignment,
+  renderExternalRealityVerification,
 ];
 
 let currentIndex = 0;
