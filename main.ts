@@ -35,6 +35,7 @@ import shadowCatUrl from "./assets/task04-cat-shadow.png";
 import shadowTreeUrl from "./assets/task04-tree-shadow.png";
 import flowerBackgroundUrl from "./assets/task09-flower-placement-background.png";
 import flowerSpriteUrl from "./assets/task09-flower.png";
+import horizonGrassBackgroundUrl from "./assets/task11-full-grass-background-v1.png";
 
 interface NavActions {
   next: () => void;
@@ -4182,6 +4183,254 @@ async function runLightSpeedTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const HORIZON_HEADING = "HORIZON CONFIGURATION";
+const HORIZON_INSTRUCTION = "Set the horizon.";
+
+const HORIZON_SCENE_WIDTH = 640;
+const HORIZON_SCENE_HEIGHT = 360;
+
+const HORIZON_POINT_X_PERCENTS = [3, 26.5, 50, 73.5, 97];
+const HORIZON_MIN_Y_PERCENT = 8;
+const HORIZON_MAX_Y_PERCENT = 92;
+const HORIZON_INITIAL_CONTROL_YS = [50, 50, 50, 50, 50];
+const HORIZON_KEYBOARD_STEP_PERCENT = 2;
+
+interface HorizonTaskState {
+  controlYs: number[];
+}
+
+function horizonPercentToPixels(xPercent: number, yPercent: number): { x: number; y: number } {
+  return {
+    x: (xPercent / 100) * HORIZON_SCENE_WIDTH,
+    y: (yPercent / 100) * HORIZON_SCENE_HEIGHT,
+  };
+}
+
+function buildCatmullRomSegments(points: { x: number; y: number }[]): string {
+  if (points.length < 2) {
+    return "";
+  }
+  const extended = [points[0], ...points, points[points.length - 1]];
+  let d = "";
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = extended[i];
+    const p1 = extended[i + 1];
+    const p2 = extended[i + 2];
+    const p3 = extended[i + 3];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+function buildHorizonGeometry(controlYs: number[]): { linePath: string; maskPath: string } {
+  const points = HORIZON_POINT_X_PERCENTS.map((xPercent, index) =>
+    horizonPercentToPixels(xPercent, controlYs[index]),
+  );
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  const forwardSegments = buildCatmullRomSegments(points);
+  const linePath = `M 0 ${first.y} L ${first.x} ${first.y}${forwardSegments} L ${HORIZON_SCENE_WIDTH} ${last.y}`;
+
+  const reversedSegments = buildCatmullRomSegments(points.slice().reverse());
+  const maskPath =
+    `M 0 0 L ${HORIZON_SCENE_WIDTH} 0 L ${HORIZON_SCENE_WIDTH} ${last.y}` +
+    ` L ${last.x} ${last.y}${reversedSegments} L 0 ${first.y} Z`;
+
+  return { linePath, maskPath };
+}
+
+function buildHorizonInterface(
+  grassBackground: HTMLImageElement,
+  initialControlYs: number[],
+  onChange: (controlYs: number[]) => void,
+): { scene: HTMLElement; overlay: HTMLElement } {
+  const controlYs = initialControlYs.slice();
+
+  const scene = document.createElement("div");
+  scene.className = "horizon-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Horizon configuration area.");
+
+  const background = document.createElement("img");
+  background.src = grassBackground.src;
+  background.alt = "";
+  background.setAttribute("aria-hidden", "true");
+  background.className = "horizon-grass-background";
+  scene.appendChild(background);
+
+  const overlay = document.createElement("div");
+  overlay.className = "horizon-overlay";
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("class", "horizon-svg");
+  svg.setAttribute("viewBox", `0 0 ${HORIZON_SCENE_WIDTH} ${HORIZON_SCENE_HEIGHT}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+
+  const darkMask = document.createElementNS(svgNS, "path");
+  darkMask.setAttribute("class", "horizon-dark-mask");
+  const horizonLine = document.createElementNS(svgNS, "path");
+  horizonLine.setAttribute("class", "horizon-line");
+  svg.append(darkMask, horizonLine);
+  overlay.appendChild(svg);
+
+  function redraw(): void {
+    const { linePath, maskPath } = buildHorizonGeometry(controlYs);
+    horizonLine.setAttribute("d", linePath);
+    darkMask.setAttribute("d", maskPath);
+  }
+  redraw();
+
+  HORIZON_POINT_X_PERCENTS.forEach((xPercent, index) => {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "horizon-handle";
+    handle.style.left = `${xPercent}%`;
+    handle.setAttribute("aria-label", `Horizon control point ${index + 1}`);
+
+    function place(): void {
+      handle.style.top = `${controlYs[index]}%`;
+    }
+    place();
+
+    function setValue(yPercent: number): void {
+      controlYs[index] = clampRange(yPercent, HORIZON_MIN_Y_PERCENT, HORIZON_MAX_Y_PERCENT);
+      place();
+      redraw();
+    }
+
+    let dragging = false;
+    let dragStartY = controlYs[index];
+
+    handle.addEventListener("pointerdown", (event) => {
+      dragging = true;
+      dragStartY = controlYs[index];
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    handle.addEventListener("pointermove", (event) => {
+      if (!dragging) {
+        return;
+      }
+      const rect = overlay.getBoundingClientRect();
+      const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+      setValue(yPercent);
+    });
+
+    handle.addEventListener("pointerup", (event) => {
+      if (!dragging) {
+        return;
+      }
+      dragging = false;
+      if (handle.hasPointerCapture(event.pointerId)) {
+        handle.releasePointerCapture(event.pointerId);
+      }
+      onChange(controlYs.slice());
+    });
+
+    handle.addEventListener("pointercancel", (event) => {
+      if (!dragging) {
+        return;
+      }
+      dragging = false;
+      if (handle.hasPointerCapture(event.pointerId)) {
+        handle.releasePointerCapture(event.pointerId);
+      }
+      setValue(dragStartY);
+    });
+
+    handle.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setValue(controlYs[index] - HORIZON_KEYBOARD_STEP_PERCENT);
+        onChange(controlYs.slice());
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setValue(controlYs[index] + HORIZON_KEYBOARD_STEP_PERCENT);
+        onChange(controlYs.slice());
+      }
+    });
+
+    overlay.appendChild(handle);
+  });
+
+  return { scene, overlay };
+}
+
+function renderHorizonTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runHorizonTaskSequence(h1, terminal, container, nav);
+}
+
+async function runHorizonTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, HORIZON_HEADING, HORIZON_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const grassBackground = await loadImage(horizonGrassBackgroundUrl);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  if (grassBackground === null) {
+    await typeLine(terminal, "Scene assets unavailable.");
+    if (!terminal.isConnected) {
+      return;
+    }
+    actionButton(container, "CONFIRM", nav.next, SYSTEM_ACTION_PRIMARY);
+    return;
+  }
+
+  const initialControlYs = taskSession.horizon?.controlYs ?? HORIZON_INITIAL_CONTROL_YS.slice();
+  const { scene, overlay } = buildHorizonInterface(grassBackground, initialControlYs, (controlYs) => {
+    taskSession.horizon = { controlYs };
+  });
+
+  const workspace = document.createElement("div");
+  workspace.className = "horizon-workspace";
+  container.appendChild(workspace);
+
+  scene.classList.add("task1-reveal-in");
+  workspace.appendChild(scene);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  overlay.classList.add("task1-reveal-in");
+  scene.appendChild(overlay);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -4193,6 +4442,7 @@ const TASK3_INDEX = 8;
 const TASK2_INDEX = 9;
 const FLOWER_INDEX = 10;
 const LIGHT_SPEED_INDEX = 11;
+const HORIZON_INDEX = 12;
 const TASK1_INDEX = 13;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
@@ -4203,6 +4453,7 @@ interface TaskSession {
   shadow: ShadowTaskState | null;
   flower: FlowerTaskState | null;
   lightSpeed: LightSpeedTaskState | null;
+  horizon: HorizonTaskState | null;
   task1: Task1SkyState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
@@ -4217,6 +4468,7 @@ const taskSession: TaskSession = {
   shadow: null,
   flower: null,
   lightSpeed: null,
+  horizon: null,
   task1: null,
   task2: null,
   task3: null,
@@ -4246,6 +4498,9 @@ function resetTaskState(index: number): void {
     case LIGHT_SPEED_INDEX:
       taskSession.lightSpeed = null;
       break;
+    case HORIZON_INDEX:
+      taskSession.horizon = null;
+      break;
     case TASK4_INDEX:
       taskSession.task4 = null;
       break;
@@ -4273,6 +4528,7 @@ function restartExperience(): void {
   taskSession.shadow = null;
   taskSession.flower = null;
   taskSession.lightSpeed = null;
+  taskSession.horizon = null;
   taskSession.task1 = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
@@ -4295,7 +4551,7 @@ const SEQUENCE: Render[] = [
   renderTask2,
   renderFlowerTask,
   renderLightSpeedTask,
-  renderTaskPlaceholder(11),
+  renderHorizonTask,
   renderTask1,
   renderTaskPlaceholder(13),
   renderTaskPlaceholder(14),
