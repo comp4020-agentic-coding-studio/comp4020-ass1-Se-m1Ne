@@ -4909,6 +4909,283 @@ async function runMeteorTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const WORLD_DRAW_HEADING = "WORLD CONFIGURATION";
+const WORLD_DRAW_INSTRUCTION = "Draw the shape of the world.";
+
+const WORLD_DRAW_WIDTH = 640;
+const WORLD_DRAW_HEIGHT = 360;
+
+const WORLD_DRAW_PENCIL_WIDTH = 4;
+const WORLD_DRAW_ERASER_WIDTH = 22;
+const WORLD_DRAW_COLOR = "#c7d0d9";
+
+type WorldDrawTool = "pencil" | "eraser";
+
+interface WorldDrawPoint {
+  x: number;
+  y: number;
+}
+
+interface WorldDrawStroke {
+  tool: WorldDrawTool;
+  points: WorldDrawPoint[];
+}
+
+interface WorldDrawState {
+  strokes: WorldDrawStroke[];
+  activeTool: WorldDrawTool;
+}
+
+function worldDrawToNativeCoords(clientX: number, clientY: number, rect: DOMRect): WorldDrawPoint {
+  return {
+    x: ((clientX - rect.left) / rect.width) * WORLD_DRAW_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * WORLD_DRAW_HEIGHT,
+  };
+}
+
+function drawWorldDrawStroke(ctx: CanvasRenderingContext2D, stroke: WorldDrawStroke): void {
+  if (stroke.points.length === 0) {
+    return;
+  }
+
+  ctx.save();
+  ctx.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+  ctx.strokeStyle = WORLD_DRAW_COLOR;
+  ctx.fillStyle = WORLD_DRAW_COLOR;
+  ctx.lineWidth = stroke.tool === "eraser" ? WORLD_DRAW_ERASER_WIDTH : WORLD_DRAW_PENCIL_WIDTH;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  if (stroke.points.length === 1) {
+    const point = stroke.points[0];
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+  for (let i = 1; i < stroke.points.length; i += 1) {
+    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function redrawWorldDrawCanvas(ctx: CanvasRenderingContext2D, strokes: WorldDrawStroke[]): void {
+  ctx.clearRect(0, 0, WORLD_DRAW_WIDTH, WORLD_DRAW_HEIGHT);
+  for (const stroke of strokes) {
+    drawWorldDrawStroke(ctx, stroke);
+  }
+}
+
+function cloneWorldDrawStrokes(strokes: WorldDrawStroke[]): WorldDrawStroke[] {
+  return strokes.map((stroke) => ({
+    tool: stroke.tool,
+    points: stroke.points.map((point) => ({ x: point.x, y: point.y })),
+  }));
+}
+
+function createWorldDrawEraserIcon(): SVGSVGElement {
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "0.95em");
+  svg.setAttribute("height", "0.95em");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.classList.add("worlddraw-eraser-icon");
+
+  const rect = document.createElementNS(svgNs, "rect");
+  rect.setAttribute("x", "2");
+  rect.setAttribute("y", "5");
+  rect.setAttribute("width", "12");
+  rect.setAttribute("height", "7");
+  rect.setAttribute("rx", "1.5");
+  rect.setAttribute("fill", "none");
+  rect.setAttribute("stroke", "currentColor");
+  rect.setAttribute("stroke-width", "1.3");
+
+  const line = document.createElementNS(svgNs, "line");
+  line.setAttribute("x1", "10");
+  line.setAttribute("y1", "5");
+  line.setAttribute("x2", "10");
+  line.setAttribute("y2", "12");
+  line.setAttribute("stroke", "currentColor");
+  line.setAttribute("stroke-width", "1.3");
+
+  svg.append(rect, line);
+  return svg;
+}
+
+function buildWorldDrawInterface(
+  initialState: WorldDrawState,
+  onChange: (state: WorldDrawState) => void,
+): { frame: HTMLElement; tools: HTMLElement } {
+  const frame = document.createElement("div");
+  frame.className = "worlddraw-canvas-frame";
+
+  const canvas = document.createElement("canvas");
+  canvas.width = WORLD_DRAW_WIDTH;
+  canvas.height = WORLD_DRAW_HEIGHT;
+  canvas.className = "worlddraw-canvas";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", "Drawing area for the shape of the world.");
+  const ctx = canvas.getContext("2d")!;
+
+  frame.appendChild(canvas);
+
+  const strokes: WorldDrawStroke[] = cloneWorldDrawStrokes(initialState.strokes);
+  let activeTool: WorldDrawTool = initialState.activeTool;
+  let currentStroke: WorldDrawStroke | null = null;
+
+  redrawWorldDrawCanvas(ctx, strokes);
+
+  function persist(): void {
+    onChange({ strokes: cloneWorldDrawStrokes(strokes), activeTool });
+  }
+
+  canvas.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    const rect = canvas.getBoundingClientRect();
+    const point = worldDrawToNativeCoords(event.clientX, event.clientY, rect);
+    currentStroke = { tool: activeTool, points: [point] };
+    strokes.push(currentStroke);
+    redrawWorldDrawCanvas(ctx, strokes);
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (!currentStroke) {
+      return;
+    }
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const point = worldDrawToNativeCoords(event.clientX, event.clientY, rect);
+    currentStroke.points.push(point);
+    redrawWorldDrawCanvas(ctx, strokes);
+  });
+
+  function finishStroke(event: PointerEvent): void {
+    if (!currentStroke) {
+      return;
+    }
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    currentStroke = null;
+    persist();
+  }
+
+  canvas.addEventListener("pointerup", finishStroke);
+  canvas.addEventListener("pointercancel", finishStroke);
+
+  const tools = document.createElement("div");
+  tools.className = "worlddraw-tools";
+
+  const pencilIcon = document.createElement("span");
+  pencilIcon.className = "worlddraw-pencil-icon";
+  pencilIcon.textContent = "✎";
+
+  const pencilButton = document.createElement("button");
+  pencilButton.type = "button";
+  pencilButton.className = "worlddraw-tool-button";
+  pencilButton.append(pencilIcon, document.createTextNode("PENCIL"));
+
+  const eraserButton = document.createElement("button");
+  eraserButton.type = "button";
+  eraserButton.className = "worlddraw-tool-button";
+  eraserButton.append(createWorldDrawEraserIcon(), document.createTextNode("ERASER"));
+
+  function updateToolButtons(): void {
+    pencilButton.setAttribute("aria-pressed", String(activeTool === "pencil"));
+    eraserButton.setAttribute("aria-pressed", String(activeTool === "eraser"));
+    canvas.classList.toggle("worlddraw-canvas-pencil", activeTool === "pencil");
+    canvas.classList.toggle("worlddraw-canvas-eraser", activeTool === "eraser");
+  }
+  updateToolButtons();
+
+  pencilButton.addEventListener("click", () => {
+    if (activeTool === "pencil") {
+      return;
+    }
+    activeTool = "pencil";
+    updateToolButtons();
+    persist();
+  });
+  eraserButton.addEventListener("click", () => {
+    if (activeTool === "eraser") {
+      return;
+    }
+    activeTool = "eraser";
+    updateToolButtons();
+    persist();
+  });
+
+  tools.append(pencilButton, eraserButton);
+
+  return { frame, tools };
+}
+
+function renderWorldDrawTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runWorldDrawTaskSequence(h1, terminal, container, nav);
+}
+
+async function runWorldDrawTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, WORLD_DRAW_HEADING, WORLD_DRAW_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const initialState: WorldDrawState = taskSession.worldDraw ?? { strokes: [], activeTool: "pencil" };
+  const { frame, tools } = buildWorldDrawInterface(initialState, (state) => {
+    taskSession.worldDraw = state;
+  });
+
+  const workspace = document.createElement("div");
+  workspace.className = "worlddraw-workspace";
+  container.appendChild(workspace);
+
+  frame.classList.add("task1-reveal-in");
+  workspace.appendChild(frame);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "worlddraw-controls";
+  workspace.appendChild(controls);
+
+  tools.classList.add("task1-reveal-in");
+  controls.appendChild(tools);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -4924,6 +5201,7 @@ const HORIZON_INDEX = 12;
 const TASK1_INDEX = 13;
 const SUNSET_INDEX = 14;
 const METEOR_INDEX = 15;
+const WORLD_DRAW_INDEX = 16;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -4937,6 +5215,7 @@ interface TaskSession {
   task1: Task1SkyState | null;
   sunset: SunsetTaskState | null;
   meteor: MeteorPreferenceState | null;
+  worldDraw: WorldDrawState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -4954,6 +5233,7 @@ const taskSession: TaskSession = {
   task1: null,
   sunset: null,
   meteor: null,
+  worldDraw: null,
   task2: null,
   task3: null,
   task4: null,
@@ -5006,6 +5286,9 @@ function resetTaskState(index: number): void {
     case METEOR_INDEX:
       taskSession.meteor = null;
       break;
+    case WORLD_DRAW_INDEX:
+      taskSession.worldDraw = null;
+      break;
     default:
       break;
   }
@@ -5022,6 +5305,7 @@ function restartExperience(): void {
   taskSession.task1 = null;
   taskSession.sunset = null;
   taskSession.meteor = null;
+  taskSession.worldDraw = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -5047,7 +5331,7 @@ const SEQUENCE: Render[] = [
   renderTask1,
   renderSunsetTask,
   renderMeteorTask,
-  renderTaskPlaceholder(15),
+  renderWorldDrawTask,
   renderTaskPlaceholder(16),
   renderTaskPlaceholder(17),
   renderTaskPlaceholder(18),
