@@ -5431,6 +5431,164 @@ async function runLocationHierarchyTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const REALITY_REFERENCE_HEADING = "REALITY REFERENCE";
+const REALITY_REFERENCE_INSTRUCTION = "Select a reference source.";
+const REALITY_REFERENCE_MAXLENGTH = 80;
+
+type RealityReferenceChoice = "observation" | "memory" | "system-data" | "external-source" | "custom" | null;
+
+interface RealityReferenceState {
+  choice: RealityReferenceChoice;
+  customText: string;
+}
+
+const REALITY_REFERENCE_FIXED_OPTIONS: { value: "observation" | "memory" | "system-data" | "external-source"; label: string }[] = [
+  { value: "observation", label: "OBSERVATION" },
+  { value: "memory", label: "MEMORY" },
+  { value: "system-data", label: "SYSTEM DATA" },
+  { value: "external-source", label: "EXTERNAL SOURCE" },
+];
+
+function buildRealityReferenceInterface(
+  initialState: RealityReferenceState | null,
+  onChange: (state: RealityReferenceState) => void,
+): HTMLElement {
+  const state: RealityReferenceState = initialState
+    ? { choice: initialState.choice, customText: initialState.customText }
+    : { choice: null, customText: "" };
+
+  const group = document.createElement("div");
+  group.className = "reality-reference-group";
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", "Reality reference source.");
+
+  const radios: HTMLInputElement[] = [];
+
+  function syncRadios(): void {
+    for (const radio of radios) {
+      radio.checked = radio.value === state.choice;
+    }
+  }
+
+  function setChoice(choice: RealityReferenceChoice): void {
+    state.choice = choice;
+    syncRadios();
+    onChange({ choice: state.choice, customText: state.customText });
+  }
+
+  for (const option of REALITY_REFERENCE_FIXED_OPTIONS) {
+    const row = document.createElement("label");
+    row.className = "reality-reference-option";
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "reality-reference";
+    radio.value = option.value;
+    radio.className = "reality-reference-radio";
+    radio.checked = state.choice === option.value;
+    radio.addEventListener("change", () => {
+      setChoice(option.value);
+    });
+    radios.push(radio);
+
+    const label = document.createElement("span");
+    label.className = "reality-reference-label";
+    label.textContent = option.label;
+
+    row.appendChild(radio);
+    row.appendChild(label);
+    group.appendChild(row);
+  }
+
+  const customRow = document.createElement("label");
+  customRow.className = "reality-reference-option reality-reference-option-custom";
+
+  const customRadio = document.createElement("input");
+  customRadio.type = "radio";
+  customRadio.name = "reality-reference";
+  customRadio.value = "custom";
+  customRadio.className = "reality-reference-radio";
+  customRadio.checked = state.choice === "custom";
+  customRadio.addEventListener("change", () => {
+    setChoice("custom");
+  });
+  radios.push(customRadio);
+
+  const customInput = document.createElement("input");
+  customInput.type = "text";
+  customInput.className = "reality-reference-custom-input";
+  customInput.maxLength = REALITY_REFERENCE_MAXLENGTH;
+  customInput.autocomplete = "off";
+  customInput.setAttribute("aria-label", "Custom reference source");
+  customInput.value = state.customText;
+
+  customInput.addEventListener("focus", () => {
+    if (state.choice !== "custom") {
+      setChoice("custom");
+    }
+  });
+  customInput.addEventListener("input", () => {
+    state.customText = customInput.value;
+    if (state.choice !== "custom") {
+      setChoice("custom");
+    } else {
+      onChange({ choice: state.choice, customText: state.customText });
+    }
+  });
+
+  customRow.appendChild(customRadio);
+  customRow.appendChild(customInput);
+  group.appendChild(customRow);
+
+  return group;
+}
+
+function renderRealityReferenceTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runRealityReferenceTaskSequence(h1, terminal, container, nav);
+}
+
+async function runRealityReferenceTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, REALITY_REFERENCE_HEADING, REALITY_REFERENCE_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const initialState = taskSession.realityReference;
+  const group = buildRealityReferenceInterface(initialState, (state) => {
+    taskSession.realityReference = state;
+  });
+
+  const workspace = document.createElement("div");
+  workspace.className = "reality-reference-workspace";
+  container.appendChild(workspace);
+
+  group.classList.add("task1-reveal-in");
+  workspace.appendChild(group);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -5449,6 +5607,7 @@ const METEOR_INDEX = 15;
 const WORLD_DRAW_INDEX = 16;
 const SIGNAL_ORDERING_INDEX = 17;
 const LOCATION_HIERARCHY_INDEX = 18;
+const REALITY_REFERENCE_INDEX = 19;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -5465,6 +5624,7 @@ interface TaskSession {
   worldDraw: WorldDrawState | null;
   signalOrdering: SignalOrderingState | null;
   locationHierarchy: LocationHierarchyState | null;
+  realityReference: RealityReferenceState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -5485,6 +5645,7 @@ const taskSession: TaskSession = {
   worldDraw: null,
   signalOrdering: null,
   locationHierarchy: null,
+  realityReference: null,
   task2: null,
   task3: null,
   task4: null,
@@ -5546,6 +5707,9 @@ function resetTaskState(index: number): void {
     case LOCATION_HIERARCHY_INDEX:
       taskSession.locationHierarchy = null;
       break;
+    case REALITY_REFERENCE_INDEX:
+      taskSession.realityReference = null;
+      break;
     default:
       break;
   }
@@ -5565,6 +5729,7 @@ function restartExperience(): void {
   taskSession.worldDraw = null;
   taskSession.signalOrdering = null;
   taskSession.locationHierarchy = null;
+  taskSession.realityReference = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -5593,7 +5758,7 @@ const SEQUENCE: Render[] = [
   renderWorldDrawTask,
   renderSignalOrderingTask,
   renderLocationHierarchyTask,
-  renderTaskPlaceholder(18),
+  renderRealityReferenceTask,
   renderTaskPlaceholder(19),
   renderTaskPlaceholder(20),
   renderChoice,
