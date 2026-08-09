@@ -5186,6 +5186,100 @@ async function runWorldDrawTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const SIGNAL_ORDERING_HEADING = "RELATION CONFIGURATION";
+const SIGNAL_ORDERING_INSTRUCTION = "Complete the relation.";
+const SIGNAL_ORDERING_FIELD_COUNT = 5;
+const SIGNAL_ORDERING_MAXLENGTH = 80;
+
+type SignalOrderingValues = [string, string, string, string, string];
+
+interface SignalOrderingState {
+  values: SignalOrderingValues;
+}
+
+function buildSignalOrderingInterface(
+  initialValues: SignalOrderingValues | null,
+  onChange: (values: SignalOrderingValues) => void,
+): HTMLElement {
+  const values: SignalOrderingValues = initialValues ? [...initialValues] : ["", "", "", "", ""];
+
+  const row = document.createElement("div");
+  row.className = "signal-order-row";
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", "Ordering expression.");
+
+  for (let i = 0; i < SIGNAL_ORDERING_FIELD_COUNT; i += 1) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "signal-order-input";
+    input.maxLength = SIGNAL_ORDERING_MAXLENGTH;
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", `Ordering field ${i + 1}`);
+    input.value = values[i];
+    input.addEventListener("input", () => {
+      values[i] = input.value;
+      onChange([...values]);
+    });
+    row.appendChild(input);
+
+    if (i < SIGNAL_ORDERING_FIELD_COUNT - 1) {
+      const separator = document.createElement("span");
+      separator.className = "signal-order-separator";
+      separator.textContent = "<";
+      separator.setAttribute("aria-hidden", "true");
+      row.appendChild(separator);
+    }
+  }
+
+  return row;
+}
+
+function renderSignalOrderingTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runSignalOrderingTaskSequence(h1, terminal, container, nav);
+}
+
+async function runSignalOrderingTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, SIGNAL_ORDERING_HEADING, SIGNAL_ORDERING_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const initialValues = taskSession.signalOrdering?.values ?? null;
+  const row = buildSignalOrderingInterface(initialValues, (values) => {
+    taskSession.signalOrdering = { values };
+  });
+
+  const workspace = document.createElement("div");
+  workspace.className = "signal-order-workspace";
+  container.appendChild(workspace);
+
+  row.classList.add("task1-reveal-in");
+  workspace.appendChild(row);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -5202,6 +5296,7 @@ const TASK1_INDEX = 13;
 const SUNSET_INDEX = 14;
 const METEOR_INDEX = 15;
 const WORLD_DRAW_INDEX = 16;
+const SIGNAL_ORDERING_INDEX = 17;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -5216,6 +5311,7 @@ interface TaskSession {
   sunset: SunsetTaskState | null;
   meteor: MeteorPreferenceState | null;
   worldDraw: WorldDrawState | null;
+  signalOrdering: SignalOrderingState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -5234,6 +5330,7 @@ const taskSession: TaskSession = {
   sunset: null,
   meteor: null,
   worldDraw: null,
+  signalOrdering: null,
   task2: null,
   task3: null,
   task4: null,
@@ -5289,6 +5386,9 @@ function resetTaskState(index: number): void {
     case WORLD_DRAW_INDEX:
       taskSession.worldDraw = null;
       break;
+    case SIGNAL_ORDERING_INDEX:
+      taskSession.signalOrdering = null;
+      break;
     default:
       break;
   }
@@ -5306,6 +5406,7 @@ function restartExperience(): void {
   taskSession.sunset = null;
   taskSession.meteor = null;
   taskSession.worldDraw = null;
+  taskSession.signalOrdering = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -5332,7 +5433,7 @@ const SEQUENCE: Render[] = [
   renderSunsetTask,
   renderMeteorTask,
   renderWorldDrawTask,
-  renderTaskPlaceholder(16),
+  renderSignalOrderingTask,
   renderTaskPlaceholder(17),
   renderTaskPlaceholder(18),
   renderTaskPlaceholder(19),
