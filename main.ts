@@ -5589,6 +5589,241 @@ async function runRealityReferenceTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const OBJECT_CONTINUITY_HEADING = "OBJECT CONTINUITY";
+const OBJECT_CONTINUITY_INSTRUCTION = "Maintain the object while it is not observed.";
+
+const OBJECT_CONTINUITY_WIDTH = 640;
+const OBJECT_CONTINUITY_HEIGHT = 360;
+const OBJECT_CONTINUITY_OBJECT_X = 190;
+const OBJECT_CONTINUITY_OBJECT_Y = 150;
+const OBJECT_CONTINUITY_OBJECT_DIAMETER = 70;
+const OBJECT_CONTINUITY_COVER_WIDTH = 220;
+const OBJECT_CONTINUITY_COVER_HEIGHT = 130;
+const OBJECT_CONTINUITY_COVER_INITIAL_X = 190;
+const OBJECT_CONTINUITY_COVER_INITIAL_Y = 280;
+
+type ObjectContinuityChoice = "present" | "absent" | "unknown" | null;
+
+interface ObjectContinuityState {
+  coverX: number;
+  coverY: number;
+  choice: ObjectContinuityChoice;
+}
+
+interface ObjectContinuityDragTracker {
+  current: (() => void) | null;
+}
+
+function objectContinuityToNativeCoords(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - rect.left) / rect.width) * OBJECT_CONTINUITY_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * OBJECT_CONTINUITY_HEIGHT,
+  };
+}
+
+function watchObjectContinuityDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+const OBJECT_CONTINUITY_STATE_OPTIONS: { value: "present" | "absent" | "unknown"; label: string }[] = [
+  { value: "present", label: "PRESENT" },
+  { value: "absent", label: "ABSENT" },
+  { value: "unknown", label: "UNKNOWN" },
+];
+
+function buildObjectContinuityInterface(
+  dragTracker: ObjectContinuityDragTracker,
+  initialState: ObjectContinuityState | null,
+  onChange: (state: ObjectContinuityState) => void,
+): HTMLElement {
+  const state: ObjectContinuityState = initialState
+    ? { coverX: initialState.coverX, coverY: initialState.coverY, choice: initialState.choice }
+    : { coverX: OBJECT_CONTINUITY_COVER_INITIAL_X, coverY: OBJECT_CONTINUITY_COVER_INITIAL_Y, choice: null };
+
+  const workspace = document.createElement("div");
+  workspace.className = "object-continuity-workspace";
+
+  const frame = document.createElement("div");
+  frame.className = "object-continuity-frame";
+  workspace.appendChild(frame);
+
+  const scene = document.createElement("div");
+  scene.className = "object-continuity-scene";
+  scene.setAttribute("role", "group");
+  scene.setAttribute("aria-label", "Object continuity experiment");
+  frame.appendChild(scene);
+
+  const object = document.createElement("div");
+  object.className = "object-continuity-object";
+  const objectWidthPercent = (OBJECT_CONTINUITY_OBJECT_DIAMETER / OBJECT_CONTINUITY_WIDTH) * 100;
+  const objectHeightPercent = (OBJECT_CONTINUITY_OBJECT_DIAMETER / OBJECT_CONTINUITY_HEIGHT) * 100;
+  object.style.width = `${objectWidthPercent}%`;
+  object.style.height = `${objectHeightPercent}%`;
+  object.style.left = `${((OBJECT_CONTINUITY_OBJECT_X - OBJECT_CONTINUITY_OBJECT_DIAMETER / 2) / OBJECT_CONTINUITY_WIDTH) * 100}%`;
+  object.style.top = `${((OBJECT_CONTINUITY_OBJECT_Y - OBJECT_CONTINUITY_OBJECT_DIAMETER / 2) / OBJECT_CONTINUITY_HEIGHT) * 100}%`;
+  scene.appendChild(object);
+
+  const cover = document.createElement("div");
+  cover.className = "object-continuity-cover";
+  cover.setAttribute("aria-label", "Cover");
+  cover.textContent = "COVER";
+  const coverWidthPercent = (OBJECT_CONTINUITY_COVER_WIDTH / OBJECT_CONTINUITY_WIDTH) * 100;
+  const coverHeightPercent = (OBJECT_CONTINUITY_COVER_HEIGHT / OBJECT_CONTINUITY_HEIGHT) * 100;
+  cover.style.width = `${coverWidthPercent}%`;
+  cover.style.height = `${coverHeightPercent}%`;
+  scene.appendChild(cover);
+
+  function applyCoverPosition(): void {
+    cover.style.left = `${((state.coverX - OBJECT_CONTINUITY_COVER_WIDTH / 2) / OBJECT_CONTINUITY_WIDTH) * 100}%`;
+    cover.style.top = `${((state.coverY - OBJECT_CONTINUITY_COVER_HEIGHT / 2) / OBJECT_CONTINUITY_HEIGHT) * 100}%`;
+  }
+
+  applyCoverPosition();
+
+  cover.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    cover.setPointerCapture(event.pointerId);
+    cover.classList.add("object-continuity-cover-dragging");
+    const pointerId = event.pointerId;
+
+    function onMove(moveEvent: PointerEvent): void {
+      const rect = scene.getBoundingClientRect();
+      const { x, y } = objectContinuityToNativeCoords(moveEvent.clientX, moveEvent.clientY, rect);
+      state.coverX = clampRange(
+        x,
+        OBJECT_CONTINUITY_COVER_WIDTH / 2,
+        OBJECT_CONTINUITY_WIDTH - OBJECT_CONTINUITY_COVER_WIDTH / 2,
+      );
+      state.coverY = clampRange(
+        y,
+        OBJECT_CONTINUITY_COVER_HEIGHT / 2,
+        OBJECT_CONTINUITY_HEIGHT - OBJECT_CONTINUITY_COVER_HEIGHT / 2,
+      );
+      applyCoverPosition();
+      onChange({ ...state });
+    }
+
+    function cleanup(): void {
+      cover.removeEventListener("pointermove", onMove);
+      cover.removeEventListener("pointerup", onUp);
+      cover.removeEventListener("pointercancel", onCancel);
+      if (cover.hasPointerCapture(pointerId)) {
+        cover.releasePointerCapture(pointerId);
+      }
+      cover.classList.remove("object-continuity-cover-dragging");
+      dragTracker.current = null;
+    }
+
+    function onUp(): void {
+      cleanup();
+    }
+
+    function onCancel(): void {
+      cleanup();
+    }
+
+    dragTracker.current = onCancel;
+    cover.addEventListener("pointermove", onMove);
+    cover.addEventListener("pointerup", onUp);
+    cover.addEventListener("pointercancel", onCancel);
+  });
+
+  const controls = document.createElement("div");
+  controls.className = "object-continuity-controls";
+  workspace.appendChild(controls);
+
+  const stateLabel = document.createElement("span");
+  stateLabel.className = "object-continuity-state-label";
+  stateLabel.textContent = "OBJECT STATE";
+  controls.appendChild(stateLabel);
+
+  const group = document.createElement("div");
+  group.className = "object-continuity-options";
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", "Object state");
+  controls.appendChild(group);
+
+  for (const option of OBJECT_CONTINUITY_STATE_OPTIONS) {
+    const row = document.createElement("label");
+    row.className = "object-continuity-option";
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "object-continuity-state";
+    radio.value = option.value;
+    radio.className = "object-continuity-radio";
+    radio.checked = state.choice === option.value;
+    radio.addEventListener("change", () => {
+      state.choice = option.value;
+      onChange({ ...state });
+    });
+
+    const label = document.createElement("span");
+    label.className = "object-continuity-label";
+    label.textContent = option.label;
+
+    row.appendChild(radio);
+    row.appendChild(label);
+    group.appendChild(row);
+  }
+
+  return workspace;
+}
+
+function renderObjectContinuityTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runObjectContinuityTaskSequence(h1, terminal, container, nav);
+}
+
+async function runObjectContinuityTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, OBJECT_CONTINUITY_HEADING, OBJECT_CONTINUITY_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const dragTracker: ObjectContinuityDragTracker = { current: null };
+  const initialState = taskSession.objectContinuity;
+  const workspace = buildObjectContinuityInterface(dragTracker, initialState, (state) => {
+    taskSession.objectContinuity = state;
+  });
+  container.appendChild(workspace);
+
+  watchObjectContinuityDetachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+  });
+
+  workspace.classList.add("task1-reveal-in");
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -5608,6 +5843,7 @@ const WORLD_DRAW_INDEX = 16;
 const SIGNAL_ORDERING_INDEX = 17;
 const LOCATION_HIERARCHY_INDEX = 18;
 const REALITY_REFERENCE_INDEX = 19;
+const OBJECT_CONTINUITY_INDEX = 20;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -5625,6 +5861,7 @@ interface TaskSession {
   signalOrdering: SignalOrderingState | null;
   locationHierarchy: LocationHierarchyState | null;
   realityReference: RealityReferenceState | null;
+  objectContinuity: ObjectContinuityState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -5646,6 +5883,7 @@ const taskSession: TaskSession = {
   signalOrdering: null,
   locationHierarchy: null,
   realityReference: null,
+  objectContinuity: null,
   task2: null,
   task3: null,
   task4: null,
@@ -5710,6 +5948,9 @@ function resetTaskState(index: number): void {
     case REALITY_REFERENCE_INDEX:
       taskSession.realityReference = null;
       break;
+    case OBJECT_CONTINUITY_INDEX:
+      taskSession.objectContinuity = null;
+      break;
     default:
       break;
   }
@@ -5730,6 +5971,7 @@ function restartExperience(): void {
   taskSession.signalOrdering = null;
   taskSession.locationHierarchy = null;
   taskSession.realityReference = null;
+  taskSession.objectContinuity = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -5759,7 +6001,7 @@ const SEQUENCE: Render[] = [
   renderSignalOrderingTask,
   renderLocationHierarchyTask,
   renderRealityReferenceTask,
-  renderTaskPlaceholder(19),
+  renderObjectContinuityTask,
   renderTaskPlaceholder(20),
   renderChoice,
   renderReflection,
