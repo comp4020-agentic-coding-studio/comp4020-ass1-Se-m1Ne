@@ -52,13 +52,6 @@ interface NavActions {
 }
 type Render = (container: HTMLElement, nav: NavActions) => void;
 
-function heading(container: HTMLElement, text: string): void {
-  const h1 = document.createElement("h1");
-  h1.tabIndex = -1;
-  h1.textContent = text;
-  container.appendChild(h1);
-}
-
 function paragraph(container: HTMLElement, text: string): void {
   const p = document.createElement("p");
   p.textContent = text;
@@ -288,14 +281,6 @@ function renderBriefing(container: HTMLElement, nav: NavActions): void {
   container.appendChild(terminal);
 
   void runBriefingSequence(h1, terminal, container, nav);
-}
-
-function renderTaskPlaceholder(n: number): Render {
-  return (container, nav) => {
-    heading(container, `Task ${n}`);
-    paragraph(container, `Task ${n} Placeholder.`);
-    addTaskNavControls(container, nav);
-  };
 }
 
 const TASK1_HEADING = "SKY CONFIGURATION";
@@ -5824,6 +5809,239 @@ async function runObjectContinuityTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const VIEWPOINT_HEADING = "VIEWPOINT CONFIGURATION";
+const VIEWPOINT_INSTRUCTION = "Set the observation point.";
+
+const VIEWPOINT_EDGE_INSET = 18;
+
+interface ViewpointState {
+  x: number;
+  y: number;
+  initialized: boolean;
+}
+
+interface ViewpointDragTracker {
+  current: (() => void) | null;
+}
+
+function viewpointWorldToViewport(x: number, y: number, worldRect: DOMRect): { x: number; y: number } {
+  return {
+    x: worldRect.left + (x / WORLD_DRAW_WIDTH) * worldRect.width,
+    y: worldRect.top + (y / WORLD_DRAW_HEIGHT) * worldRect.height,
+  };
+}
+
+function viewpointViewportToWorld(clientX: number, clientY: number, worldRect: DOMRect): { x: number; y: number } {
+  return {
+    x: ((clientX - worldRect.left) / worldRect.width) * WORLD_DRAW_WIDTH,
+    y: ((clientY - worldRect.top) / worldRect.height) * WORLD_DRAW_HEIGHT,
+  };
+}
+
+function watchViewpointDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function buildViewpointInterface(
+  container: HTMLElement,
+  dragTracker: ViewpointDragTracker,
+  initialState: ViewpointState | null,
+  onChange: (state: ViewpointState) => void,
+): { workspace: HTMLElement; cleanup: () => void } {
+  const state: ViewpointState = initialState
+    ? { x: initialState.x, y: initialState.y, initialized: initialState.initialized }
+    : { x: WORLD_DRAW_WIDTH / 2, y: WORLD_DRAW_HEIGHT / 2, initialized: true };
+
+  const workspace = document.createElement("div");
+  workspace.className = "viewpoint-workspace";
+
+  const scene = document.createElement("div");
+  scene.className = "viewpoint-scene";
+  workspace.appendChild(scene);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = WORLD_DRAW_WIDTH;
+  canvas.height = WORLD_DRAW_HEIGHT;
+  canvas.className = "viewpoint-scene-canvas";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", "The recorded shape of the world.");
+  scene.appendChild(canvas);
+
+  const ctx = canvas.getContext("2d")!;
+  redrawWorldDrawCanvas(ctx, taskSession.worldDraw?.strokes ?? []);
+
+  const controls = document.createElement("div");
+  controls.className = "viewpoint-controls";
+  workspace.appendChild(controls);
+
+  const label = document.createElement("span");
+  label.className = "viewpoint-label";
+  label.textContent = "VIEWPOINT";
+  controls.appendChild(label);
+
+  const readout = document.createElement("div");
+  readout.className = "viewpoint-readout";
+  controls.appendChild(readout);
+
+  function buildReadoutRow(axisLabel: string): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "viewpoint-readout-row";
+
+    const axis = document.createElement("span");
+    axis.className = "viewpoint-readout-axis";
+    axis.textContent = axisLabel;
+
+    const value = document.createElement("span");
+    value.className = "viewpoint-readout-value";
+
+    row.append(axis, value);
+    readout.appendChild(row);
+    return value;
+  }
+
+  const xValue = buildReadoutRow("X");
+  const yValue = buildReadoutRow("Y");
+
+  function updateReadout(): void {
+    xValue.textContent = String(Math.round(state.x));
+    yValue.textContent = String(Math.round(state.y));
+  }
+
+  updateReadout();
+
+  container.appendChild(workspace);
+
+  const point = document.createElement("div");
+  point.className = "viewpoint-point";
+  point.setAttribute("aria-label", "Observation point");
+  container.appendChild(point);
+
+  function applyPointPosition(): void {
+    const rect = scene.getBoundingClientRect();
+    const viewport = viewpointWorldToViewport(state.x, state.y, rect);
+    const clampedX = clampRange(viewport.x, VIEWPOINT_EDGE_INSET, window.innerWidth - VIEWPOINT_EDGE_INSET);
+    const clampedY = clampRange(viewport.y, VIEWPOINT_EDGE_INSET, window.innerHeight - VIEWPOINT_EDGE_INSET);
+    point.style.left = `${clampedX}px`;
+    point.style.top = `${clampedY}px`;
+  }
+
+  applyPointPosition();
+
+  function onResize(): void {
+    applyPointPosition();
+  }
+  window.addEventListener("resize", onResize);
+
+  point.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    point.setPointerCapture(event.pointerId);
+    point.classList.add("viewpoint-point-dragging");
+    const pointerId = event.pointerId;
+
+    function onMove(moveEvent: PointerEvent): void {
+      const clampedX = clampRange(moveEvent.clientX, VIEWPOINT_EDGE_INSET, window.innerWidth - VIEWPOINT_EDGE_INSET);
+      const clampedY = clampRange(
+        moveEvent.clientY,
+        VIEWPOINT_EDGE_INSET,
+        window.innerHeight - VIEWPOINT_EDGE_INSET,
+      );
+      point.style.left = `${clampedX}px`;
+      point.style.top = `${clampedY}px`;
+
+      const rect = scene.getBoundingClientRect();
+      const world = viewpointViewportToWorld(clampedX, clampedY, rect);
+      state.x = world.x;
+      state.y = world.y;
+      updateReadout();
+      onChange({ ...state });
+    }
+
+    function cleanup(): void {
+      point.removeEventListener("pointermove", onMove);
+      point.removeEventListener("pointerup", onUp);
+      point.removeEventListener("pointercancel", onCancel);
+      if (point.hasPointerCapture(pointerId)) {
+        point.releasePointerCapture(pointerId);
+      }
+      point.classList.remove("viewpoint-point-dragging");
+      dragTracker.current = null;
+    }
+
+    function onUp(): void {
+      cleanup();
+    }
+
+    function onCancel(): void {
+      cleanup();
+    }
+
+    dragTracker.current = onCancel;
+    point.addEventListener("pointermove", onMove);
+    point.addEventListener("pointerup", onUp);
+    point.addEventListener("pointercancel", onCancel);
+  });
+
+  function cleanup(): void {
+    window.removeEventListener("resize", onResize);
+  }
+
+  return { workspace, cleanup };
+}
+
+function renderViewpointTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runViewpointTaskSequence(h1, terminal, container, nav);
+}
+
+async function runViewpointTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, VIEWPOINT_HEADING, VIEWPOINT_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const dragTracker: ViewpointDragTracker = { current: null };
+  const initialState = taskSession.viewpoint;
+  const { workspace, cleanup } = buildViewpointInterface(container, dragTracker, initialState, (state) => {
+    taskSession.viewpoint = state;
+  });
+
+  watchViewpointDetachment(workspace, () => {
+    dragTracker.current?.();
+    dragTracker.current = null;
+    cleanup();
+  });
+
+  workspace.classList.add("task1-reveal-in");
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -5844,6 +6062,7 @@ const SIGNAL_ORDERING_INDEX = 17;
 const LOCATION_HIERARCHY_INDEX = 18;
 const REALITY_REFERENCE_INDEX = 19;
 const OBJECT_CONTINUITY_INDEX = 20;
+const VIEWPOINT_INDEX = 21;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -5862,6 +6081,7 @@ interface TaskSession {
   locationHierarchy: LocationHierarchyState | null;
   realityReference: RealityReferenceState | null;
   objectContinuity: ObjectContinuityState | null;
+  viewpoint: ViewpointState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -5884,6 +6104,7 @@ const taskSession: TaskSession = {
   locationHierarchy: null,
   realityReference: null,
   objectContinuity: null,
+  viewpoint: null,
   task2: null,
   task3: null,
   task4: null,
@@ -5951,6 +6172,9 @@ function resetTaskState(index: number): void {
     case OBJECT_CONTINUITY_INDEX:
       taskSession.objectContinuity = null;
       break;
+    case VIEWPOINT_INDEX:
+      taskSession.viewpoint = null;
+      break;
     default:
       break;
   }
@@ -5972,6 +6196,7 @@ function restartExperience(): void {
   taskSession.locationHierarchy = null;
   taskSession.realityReference = null;
   taskSession.objectContinuity = null;
+  taskSession.viewpoint = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -6002,7 +6227,7 @@ const SEQUENCE: Render[] = [
   renderLocationHierarchyTask,
   renderRealityReferenceTask,
   renderObjectContinuityTask,
-  renderTaskPlaceholder(20),
+  renderViewpointTask,
   renderChoice,
   renderReflection,
 ];
