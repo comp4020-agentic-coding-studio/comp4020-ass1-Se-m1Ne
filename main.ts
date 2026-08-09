@@ -5280,6 +5280,157 @@ async function runSignalOrderingTaskSequence(
   addTaskNavControls(container, nav);
 }
 
+const LOCATION_HIERARCHY_HEADING = "LOCATION HIERARCHY";
+const LOCATION_HIERARCHY_INSTRUCTION = "Extend the hierarchy.";
+const LOCATION_HIERARCHY_FIXED_TERMS = ["OBJECT", "ROOM", "WORLD"];
+const LOCATION_HIERARCHY_MAXLENGTH = 80;
+
+type LocationHierarchyValues = [string, string];
+
+interface LocationHierarchyState {
+  values: LocationHierarchyValues;
+}
+
+function watchLocationHierarchyDetachment(node: HTMLElement, onDetached: () => void): void {
+  const observer = new MutationObserver(() => {
+    if (!node.isConnected) {
+      observer.disconnect();
+      onDetached();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function buildLocationHierarchyInterface(
+  initialValues: LocationHierarchyValues | null,
+  onChange: (values: LocationHierarchyValues) => void,
+): { row: HTMLElement; anchor: HTMLElement } {
+  const values: LocationHierarchyValues = initialValues ? [...initialValues] : ["", ""];
+
+  const row = document.createElement("div");
+  row.className = "location-hierarchy-row";
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", "Location hierarchy.");
+
+  function appendSeparator(): void {
+    const separator = document.createElement("span");
+    separator.className = "location-hierarchy-separator";
+    separator.textContent = "<";
+    separator.setAttribute("aria-hidden", "true");
+    row.appendChild(separator);
+  }
+
+  for (const term of LOCATION_HIERARCHY_FIXED_TERMS) {
+    const termEl = document.createElement("span");
+    termEl.className = "location-hierarchy-term";
+    termEl.textContent = term;
+    row.appendChild(termEl);
+    appendSeparator();
+  }
+
+  for (let i = 0; i < values.length; i += 1) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "location-hierarchy-input";
+    input.maxLength = LOCATION_HIERARCHY_MAXLENGTH;
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", `Hierarchy input ${i + 1}`);
+    input.value = values[i];
+    input.addEventListener("input", () => {
+      values[i] = input.value;
+      onChange([...values]);
+    });
+    row.appendChild(input);
+
+    if (i < values.length - 1) {
+      appendSeparator();
+    }
+  }
+
+  const finalGroup = document.createElement("span");
+  finalGroup.className = "location-hierarchy-final";
+
+  const finalSeparator = document.createElement("span");
+  finalSeparator.className = "location-hierarchy-separator";
+  finalSeparator.textContent = "<";
+  finalSeparator.setAttribute("aria-hidden", "true");
+  finalGroup.appendChild(finalSeparator);
+
+  row.appendChild(finalGroup);
+
+  return { row, anchor: finalGroup };
+}
+
+function attachLocationRedactionOverlay(anchor: HTMLElement, watchNode: HTMLElement): void {
+  const overlay = document.createElement("div");
+  overlay.className = "location-redacted-viewport-extension";
+  overlay.setAttribute("aria-hidden", "true");
+  document.body.appendChild(overlay);
+
+  function reposition(): void {
+    const rect = anchor.getBoundingClientRect();
+    overlay.style.left = `${rect.right}px`;
+    overlay.style.top = `${rect.top + rect.height / 2}px`;
+  }
+
+  reposition();
+  requestAnimationFrame(reposition);
+  window.addEventListener("resize", reposition);
+
+  watchLocationHierarchyDetachment(watchNode, () => {
+    window.removeEventListener("resize", reposition);
+    overlay.remove();
+  });
+}
+
+function renderLocationHierarchyTask(container: HTMLElement, nav: NavActions): void {
+  container.classList.add("term-wide");
+
+  const h1 = document.createElement("h1");
+  h1.tabIndex = -1;
+  container.appendChild(h1);
+
+  const terminal = document.createElement("div");
+  terminal.className = "align-terminal";
+  terminal.setAttribute("aria-live", "polite");
+  container.appendChild(terminal);
+
+  void runLocationHierarchyTaskSequence(h1, terminal, container, nav);
+}
+
+async function runLocationHierarchyTaskSequence(
+  h1: HTMLElement,
+  terminal: HTMLElement,
+  container: HTMLElement,
+  nav: NavActions,
+): Promise<void> {
+  await sleep(0);
+  await runTaskIntro(h1, terminal, LOCATION_HIERARCHY_HEADING, LOCATION_HIERARCHY_INSTRUCTION, nav.alreadyVisited);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  const initialValues = taskSession.locationHierarchy?.values ?? null;
+  const { row, anchor } = buildLocationHierarchyInterface(initialValues, (values) => {
+    taskSession.locationHierarchy = { values };
+  });
+
+  const workspace = document.createElement("div");
+  workspace.className = "location-hierarchy-workspace";
+  container.appendChild(workspace);
+
+  row.classList.add("task1-reveal-in");
+  workspace.appendChild(row);
+  await sleep(120);
+  if (!terminal.isConnected) {
+    return;
+  }
+
+  attachLocationRedactionOverlay(anchor, workspace);
+
+  addTaskNavControls(container, nav);
+}
+
 const FIRST_TASK_INDEX = 2;
 const HABITAT_INDEX = 2;
 const SLEEVE_INDEX = 3;
@@ -5297,6 +5448,7 @@ const SUNSET_INDEX = 14;
 const METEOR_INDEX = 15;
 const WORLD_DRAW_INDEX = 16;
 const SIGNAL_ORDERING_INDEX = 17;
+const LOCATION_HIERARCHY_INDEX = 18;
 const LAST_TASK_INDEX = FIRST_TASK_INDEX + 19;
 
 interface TaskSession {
@@ -5312,6 +5464,7 @@ interface TaskSession {
   meteor: MeteorPreferenceState | null;
   worldDraw: WorldDrawState | null;
   signalOrdering: SignalOrderingState | null;
+  locationHierarchy: LocationHierarchyState | null;
   task2: Task2LightState | null;
   task3: Task3WeatherState | null;
   task4: Task4HandsState | null;
@@ -5331,6 +5484,7 @@ const taskSession: TaskSession = {
   meteor: null,
   worldDraw: null,
   signalOrdering: null,
+  locationHierarchy: null,
   task2: null,
   task3: null,
   task4: null,
@@ -5389,6 +5543,9 @@ function resetTaskState(index: number): void {
     case SIGNAL_ORDERING_INDEX:
       taskSession.signalOrdering = null;
       break;
+    case LOCATION_HIERARCHY_INDEX:
+      taskSession.locationHierarchy = null;
+      break;
     default:
       break;
   }
@@ -5407,6 +5564,7 @@ function restartExperience(): void {
   taskSession.meteor = null;
   taskSession.worldDraw = null;
   taskSession.signalOrdering = null;
+  taskSession.locationHierarchy = null;
   taskSession.task2 = null;
   taskSession.task3 = null;
   taskSession.task4 = null;
@@ -5434,7 +5592,7 @@ const SEQUENCE: Render[] = [
   renderMeteorTask,
   renderWorldDrawTask,
   renderSignalOrderingTask,
-  renderTaskPlaceholder(17),
+  renderLocationHierarchyTask,
   renderTaskPlaceholder(18),
   renderTaskPlaceholder(19),
   renderTaskPlaceholder(20),
